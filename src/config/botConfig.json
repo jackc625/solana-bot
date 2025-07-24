@@ -1,0 +1,23 @@
+{
+  "dryRun": true,
+  "minLiquidity": 1,
+  "maxLiquidity": 100,
+  "scoreThreshold": 2,
+  "buyAmounts": {
+    "2": 0.1,
+    "3": 0.2,
+    "4": 0.25
+  },
+  "tpMultiplier": 2.0,
+  "slDropFromPeak": 0.5,
+  "fallbackMinutes": 5,
+  "slippage": 1,
+  "autoSellDelaySeconds": 90,
+  "honeypotSellTaxThreshold": 95,
+  "maxTaxPercent": 10,
+  "minHoldMs": 45000,
+  "maxHoldMs": 120000,
+  "checkIntervalMs": 5000,
+  "targetRoi": 0.5,
+  "stopLossRoi": -0.25
+}
