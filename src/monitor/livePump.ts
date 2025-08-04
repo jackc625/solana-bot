@@ -25,6 +25,7 @@ interface PumpApiResponse {
 export const monitorLivePumpFun = async (onNewToken: (token: PumpToken) => void) => {
     const jupiter = await getJupiter();
 
+
     const poll = async () => {
         try {
             const res = await fetch("https://pump.fun/api/launchpad/launches?limit=50");
@@ -34,6 +35,10 @@ export const monitorLivePumpFun = async (onNewToken: (token: PumpToken) => void)
             for (const item of data) {
                 const mint = item.tokenId;
                 if (!mint) continue;
+                if (!jupiter) {
+                    console.warn(`⚠️ Jupiter unavailable. Skipping ${mint}`);
+                    return;
+                }
 
                 if (!seenMints[mint] || now - seenMints[mint] > SEEN_TTL_MS) {
                     seenMints[mint] = now;
@@ -56,7 +61,7 @@ export const monitorLivePumpFun = async (onNewToken: (token: PumpToken) => void)
                     const token: PumpToken = {
                         mint,
                         creator: item.creator,
-                        launchedAt: item.timestamp * 1000,
+                        launchedAt: item.timestamp,
                         simulatedLp,
                         hasJupiterRoute,
                         lpTokenAddress,

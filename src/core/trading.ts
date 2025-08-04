@@ -22,6 +22,7 @@ export async function executeBuy(
 ) {
     try {
         const jupiter = await getJupiter();
+        if (!jupiter) throw new Error("❌ Jupiter instance unavailable");
 
         const route = await computeSwap(outputMint, amount, wallet.publicKey);
         if (!route) {

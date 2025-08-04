@@ -1,9 +1,12 @@
+// src/sell/autoSellManager.ts
+
 import { connection, loadWallet, getTokenBalance } from "../utils/solana.js";
 import { sellToken, getCurrentPriceViaJupiter } from "../core/trading.js";
 import { loadBotConfig } from "../config/index.js";
 import { logTrade } from "../utils/logger.js";
 import { simulateSell } from "../utils/jupiter.js";
 import { PublicKey } from "@solana/web3.js";
+import { sendTelegramMessage } from "../utils/telegram.js";
 
 type ActivePosition = {
     mint: string;
@@ -134,6 +137,16 @@ export async function runAutoSellLoop() {
                     });
                 }
 
+                await sendTelegramMessage(
+                    `📤 *${reason}*\n` +
+                    `Token: \`${mint}\`\n` +
+                    `Sell Price: ${currentPrice.toFixed(4)} SOL\n` +
+                    `Buy Price: ${buyPrice.toFixed(4)} SOL\n` +
+                    `Held: ${Math.floor((now - buyTime) / 1000)}s\n` +
+                    `🔗 [Pump](https://pump.fun/${mint})`
+                );
+
+
                 activePositions.splice(i, 1);
                 delete peakPriceMap[mint];
             }
@@ -228,6 +241,16 @@ export async function startSellWatcher(pos: ActivePosition) {
                     dryRun,
                 });
             }
+
+            await sendTelegramMessage(
+                `📤 *${reason}*\n` +
+                `Token: \`${mint}\`\n` +
+                `Sell Price: ${currentPrice.toFixed(4)} SOL\n` +
+                `Buy Price: ${buyPrice.toFixed(4)} SOL\n` +
+                `Held: ${Math.floor((Date.now() - buyTime) / 1000)}s\n` +
+                `🔗 [Pump](https://pump.fun/${mint})`
+            );
+
 
             // cleanup
             const index = activePositions.findIndex(p => p.mint === mint);

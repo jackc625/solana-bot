@@ -1,5 +1,7 @@
+// src/utils/jupiter.ts
+
 import { Jupiter, RouteInfo } from "@jup-ag/core";
-import { PublicKey } from "@solana/web3.js";
+import { PublicKey, VersionedTransaction, Keypair } from "@solana/web3.js";
 import * as JSBI from "jsbi";
 import { connection } from "./solana.js";
 import { loadBotConfig } from "../config/index.js";
@@ -54,7 +56,7 @@ export async function computeSwap(
     outputMint: string,
     amount: number,
     userPublicKey: PublicKey
-): Promise<RouteInfo | null> {
+): Promise<(RouteInfo & { swapTransaction?: string }) | null> {
     if (shouldCooldown()) {
         console.warn("🛑 Skipping Jupiter call — global cooldown active.");
         return null;
@@ -69,31 +71,17 @@ export async function computeSwap(
     recentQuotes.set(dedupKey, now);
 
     try {
-        const now = Date.now();
-
         if (now - lastCooldown < 10_000) {
             console.warn("⏳ Global cooldown active... waiting");
             await new Promise((r) => setTimeout(r, 2000));
         }
 
-        console.log(`📡 Jupiter queue size: ${jupiterQueue.size}`); // Add this before each jupiterQueue.add()
+        console.log(`📡 Jupiter queue size: ${jupiterQueue.size}`);
         console.log(`[QUEUE] Queue size: ${jupiterQueue.size} | Pending: ${jupiterQueue.pending}`);
 
         const result = await jupiterQueue.add(async () => {
             console.log(`[QUEUE] Queue size: ${jupiterQueue.size} | Pending: ${jupiterQueue.pending}`);
-
             console.log(`📡 Jupiter API hit at ${new Date().toISOString()}`);
-
-
-            if (consecutive429s >= 5 || consecutiveFails >= 2) {
-                triggerCooldown(15_000);
-                const wait = 5000 + consecutiveFails * 2000;
-                console.warn(
-                    `⏳ Cooling down after ${consecutive429s} 429s and ${consecutiveFails} fails... waiting ${wait}ms`
-                );
-                await new Promise((res) => setTimeout(res, wait));
-                lastCooldown = Date.now();
-            }
 
             const jupiter = await getSharedJupiter(userPublicKey);
 
@@ -105,9 +93,18 @@ export async function computeSwap(
             });
 
             const routeInfos = (rawResult as any)?.routesInfos;
+            const bestRoute = routeInfos?.[0];
+            if (!bestRoute) return null;
+
+            const { swapTransaction } = await jupiter.exchange({
+                routeInfo: bestRoute,
+                userPublicKey
+            });
+
             consecutive429s = 0;
             consecutiveFails = 0;
-            return routeInfos?.[0] ?? null;
+
+            return { ...bestRoute, swapTransaction };
         });
 
         return result;
@@ -224,6 +221,48 @@ export async function simulateSell({
     } catch (err) {
         console.warn(`❌ Sell simulation failed for ${tokenMint}:`, (err as Error)?.message || err);
         return { expectedOut: 0, success: false };
+    }
+}
+
+export async function simulateBuySell(
+    wallet: PublicKey,
+    inputMint: string,
+    outputMint: string,
+    amount: number
+): Promise<{ passed: boolean; buyPass: boolean; sellPass: boolean }> {
+    try {
+        // Simulate BUY (SOL → Token)
+        const buyRoute = await computeSwap(outputMint, amount, wallet);
+        const buyTx = buyRoute?.swapTransaction;
+
+        let buyPass = false;
+        if (buyTx) {
+            const simBuy = await connection.simulateTransaction(
+                VersionedTransaction.deserialize(Buffer.from(buyTx, "base64"))
+            );
+            buyPass = simBuy.value.err === null;
+        }
+
+        // Simulate SELL (Token → SOL)
+        const sellRoute = await computeSwap(inputMint, amount, wallet);
+        const sellTx = sellRoute?.swapTransaction;
+
+        let sellPass = false;
+        if (sellTx) {
+            const simSell = await connection.simulateTransaction(
+                VersionedTransaction.deserialize(Buffer.from(sellTx, "base64"))
+            );
+            sellPass = simSell.value.err === null;
+        }
+
+        return {
+            passed: buyPass && sellPass,
+            buyPass,
+            sellPass
+        };
+    } catch (err) {
+        console.warn("⚠️ Manual simulation error:", err);
+        return { passed: false, buyPass: false, sellPass: false };
     }
 }
 

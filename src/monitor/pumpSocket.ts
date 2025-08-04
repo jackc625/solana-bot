@@ -3,18 +3,29 @@
 import WebSocket from "ws";
 import { PublicKey } from "@solana/web3.js";
 import { PumpToken } from "./pumpFun.js";
-import { pendingTokens } from "../state/pendingTokens.js"; // 👈 we’ll create this next
+import { normalizeMint } from "../utils/normalizeMint.js";
+import { getJupiter } from "../utils/jupiterInstance.js";
+import {getLpLiquidityDirectly, getLpLiquidityFromPump} from "../utils/getLpLiquidity.js";
+import { getLpTokenAddress } from "../utils/getLpTokenAddress.js";
+import { hasDirectJupiterRoute } from "../utils/hasDirectJupiterRoute.js";
 
-const seenMints = new Set<string>();
+const seenMints: Record<string, number> = {};
+const SEEN_TTL_MS = 10 * 60 * 1000; // 10 minutes
+
 const recentLaunches: string[] = [];
-const solMint = new PublicKey("So11111111111111111111111111111111111111112");
-
-// reset per-minute counter
 setInterval(() => (recentLaunches.length = 0), 60_000);
+
+const solMint = new PublicKey("So11111111111111111111111111111111111111112");
 
 export const monitorPumpSocket = async (
     onNewToken: (token: PumpToken) => void,
 ) => {
+    const jupiter = await getJupiter();
+    if (!jupiter) {
+        console.error("❌ Jupiter instance failed to load.");
+        return;
+    }
+
     const socket = new WebSocket("wss://pumpportal.fun/api/data");
 
     socket.on("open", () => {
@@ -27,7 +38,7 @@ export const monitorPumpSocket = async (
         try {
             msg = JSON.parse(raw.toString());
         } catch (err) {
-            console.warn("⚠️ Non‑JSON WS message:", raw.toString());
+            console.warn("⚠️ Non-JSON WS message:", raw.toString());
             return;
         }
 
@@ -36,15 +47,24 @@ export const monitorPumpSocket = async (
             return;
         }
 
-        const mint: string | undefined =
+        const rawMint =
             typeof msg.mint === "string"
                 ? msg.mint
                 : typeof msg.tokenId === "string"
                     ? msg.tokenId
                     : msg.data?.tokenId;
 
-        if (!mint || seenMints.has(mint)) return;
-        seenMints.add(mint);
+        const mint = normalizeMint(rawMint ?? "");
+        if (!mint) {
+            console.warn(`⚠️ Could not normalize mint from raw: ${rawMint}`, "Raw message:", msg);
+            return;
+        }
+
+        const now = Date.now();
+        if (seenMints[mint] && now - seenMints[mint] < SEEN_TTL_MS) return;
+        seenMints[mint] = now;
+
+        console.log("🧪 Cleaned Mint:", mint, "| Raw:", rawMint);
 
         if (recentLaunches.length >= 20) {
             console.log(`⏳ Dropping ${mint} — too many launches`);
@@ -52,27 +72,45 @@ export const monitorPumpSocket = async (
         }
         recentLaunches.push(mint);
 
-        await sleep(100 + Math.random() * 50);
+        await sleep(100 + Math.random() * 50); // Slight delay before enrichment
 
         try {
+            const tokenMint = new PublicKey(mint);
+            const liquidity = await getLpLiquidityDirectly(mint);
+            const lpSol = liquidity?.lpSol ?? 0;
+            const earlyHolders = liquidity?.earlyHolders ?? 0;
+
+            const lpTokenAddress = await getLpTokenAddress(jupiter, solMint, tokenMint);
+            const hasJupiterRoute = await hasDirectJupiterRoute(jupiter, solMint, tokenMint);
+
+            const ts = Math.floor(msg.timestamp ?? msg.data?.timestamp ?? Date.now());
+            const launchedAt = isNaN(ts) ? Math.floor(Date.now()) : ts;
+
             const token: PumpToken = {
                 mint,
                 creator: msg.creator ?? msg.data?.creator ?? "unknown",
-                launchedAt: (msg.timestamp ?? msg.data?.timestamp ?? Date.now()) * 1000,
-                simulatedLp: 0,
-                hasJupiterRoute: false,
-                lpTokenAddress: "",
+                launchedAt,
+                simulatedLp: lpSol,
+                hasJupiterRoute,
+                lpTokenAddress,
                 metadata: {
                     name: msg.name ?? msg.data?.name ?? "Unknown",
                     symbol: msg.symbol ?? msg.data?.symbol ?? "???",
                     decimals: 9,
                 },
-                earlyHolders: 0,
+                earlyHolders,
                 launchSpeedSeconds: 0,
             };
 
             console.log("🟢 WS token detected:", token.mint);
-            pendingTokens.set(mint, token); // 👈 saved for background validation
+            console.log("🧪 Token debug:", {
+                lpSol,
+                earlyHolders,
+                lpTokenAddress,
+                hasJupiterRoute,
+            });
+
+            onNewToken(token);
         } catch (err) {
             console.warn("⚠️ Error processing token event:", err);
         }
@@ -85,9 +123,18 @@ export const monitorPumpSocket = async (
     socket.on("close", (code, reason) => {
         console.warn(`⚠️ WebSocket closed (${code}):`, reason.toString());
     });
+
+    // Cleanup seen mints to avoid memory leaks
+    setInterval(() => {
+        const now = Date.now();
+        for (const mint in seenMints) {
+            if (now - seenMints[mint] > SEEN_TTL_MS) {
+                delete seenMints[mint];
+            }
+        }
+    }, 60_000);
 };
 
 function sleep(ms: number) {
     return new Promise<void>((res) => setTimeout(res, ms));
 }
-

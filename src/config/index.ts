@@ -46,7 +46,7 @@ export const loadBotConfig = (): BotConfig => {
             dryRun: json.dryRun ?? true,
             minLiquidity: json.minLiquidity ?? 1,
             maxLiquidity: json.maxLiquidity ?? 100,
-            scoreThreshold: json.scoreThreshold ?? 2,
+            scoreThreshold: json.scoreThreshold ?? 5,
             buyAmounts: json.buyAmounts ?? {},
             tpMultiplier: json.tpMultiplier ?? 2.0,
             slDropFromPeak: json.slDropFromPeak ?? 0.5,

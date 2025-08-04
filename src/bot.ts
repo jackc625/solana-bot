@@ -1,4 +1,5 @@
 // src/bot.ts
+
 import "./init/fetchPatch.js";
 import { loadBotConfig } from "./config/index.js";
 import { connection, loadWallet, getWalletAddress, RPC_URL } from "./utils/solana.js";
@@ -20,6 +21,8 @@ import { monitorPumpFun } from "./monitor/pumpFun.js";
 import { monitorLivePumpFun } from "./monitor/livePump.js";
 import { startRetryValidator } from "./core/retryValidator.js";
 import { pendingTokens } from "./state/pendingTokens.js";
+import { sendTelegramMessage, startTelegramBot } from "./utils/telegram.js";
+import { normalizeMint } from "./utils/normalizeMint.js";
 
 let lastSnipeTime = 0;
 const SNIPE_COOLDOWN_MS = 60_000;
@@ -42,8 +45,11 @@ async function main() {
     if (wallet) {
         console.log("🔑 Wallet address:", getWalletAddress(wallet));
     } else {
-        console.log("⚠️ Monitor‑only mode (no PRIVATE_KEY); skipping any buy/sell operations.");
+        console.log("⚠️ Monitor-only mode (no PRIVATE_KEY); skipping any buy/sell operations.");
     }
+
+    startTelegramBot();
+    pendingTokens.clear();
 
     console.log("🚀 Bot started!");
     console.log("🌐 RPC connected:", await connection.getVersion());
@@ -58,8 +64,16 @@ async function main() {
     void runAutoSellLoop();
     console.log("✅ Auto-sell loop started");
 
-    // 🚨 Push into pending queue instead of processing instantly
-    await monitorPumpSocket((token: PumpToken) => pendingTokens.set(token.mint, token));
+    // 🚨 Push into pending queue instead of processing instantly, with normalization
+    await monitorPumpSocket((token: PumpToken) => {
+        const cleaned = normalizeMint(token.mint);
+        if (!cleaned) {
+            console.warn("⚠️ Failed to normalize mint from socket:", token.mint);
+            return;
+        }
+        token.mint = cleaned; // ensure the token object carries the normalized mint
+        pendingTokens.set(cleaned, token);
+    });
     // await monitorPumpFun((token) => pendingTokens.set(token.mint, token));
     // await monitorLivePumpFun((token) => pendingTokens.set(token.mint, token));
 
@@ -82,7 +96,7 @@ async function handleValidatedToken(token: PumpToken) {
         }
 
         const { score, details } = await scoreToken(token);
-        console.log(`📊 Token scored ${score}/4:`, details);
+        console.log(`📊 Token scored ${score}/7:`, details);
 
         if (score < config.scoreThreshold) {
             console.log(`⚠️ Score too low — skipping ${token.mint}`);
@@ -126,6 +140,13 @@ async function handleValidatedToken(token: PumpToken) {
         }
 
         await trySnipeToken(connection, wallet, token.mint, buyAmount, config.dryRun);
+
+        await sendTelegramMessage(
+            `🎯 *Sniped token* \`${token.mint}\`\n` +
+            `📊 Score: ${score}/7\n` +
+            `💸 Buy: ${buyAmount} SOL @ ${currentPrice?.toFixed(4)} SOL/token\n` +
+            `🔗 [Pump](https://pump.fun/${token.mint})`
+        );
 
         try {
             trackBuy(token.mint, buyAmount, currentPrice, token.creator);

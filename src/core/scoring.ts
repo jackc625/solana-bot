@@ -1,6 +1,8 @@
 // src/core/scoring.ts
 
 import { PumpToken } from "../monitor/pumpFun.js";
+import { PublicKey } from "@solana/web3.js"
+import { connection } from "../utils/solana.js";
 
 export interface ScoreResult {
     score: number;
@@ -9,6 +11,9 @@ export interface ScoreResult {
         earlyHolders: boolean;
         launchSpeed: boolean;
         cleanDeployer: boolean;
+        hasSocial: boolean;
+        largeCap: boolean;
+        deployerWhale: boolean;
     };
 }
 
@@ -40,6 +45,18 @@ async function fetchDeployerHistory(creator: string): Promise<number> {
 export const scoreToken = async (token: PumpToken): Promise<ScoreResult> => {
     const recentTokensByDeployer = await fetchDeployerHistory(token.creator);
     const marketCap = estimateMarketCap(token);
+    let deployerWhale = false;
+
+    try {
+        const mintPubkey = new PublicKey(token.mint);
+        const largestAccounts = await connection.getTokenLargestAccounts(mintPubkey);
+        const topAccount = largestAccounts.value[0];
+        const topAmount = topAccount?.uiAmount ?? 0;
+
+        deployerWhale = topAmount >= 200_000_000; // 20% of 1B assumed total
+    } catch (err) {
+        console.warn(`⚠️ Failed to check largest token holder:`, err);
+    }
 
     const details = {
         metadata: !!(token.metadata.name && token.metadata.symbol && token.metadata.decimals !== undefined),
@@ -48,6 +65,7 @@ export const scoreToken = async (token: PumpToken): Promise<ScoreResult> => {
         cleanDeployer: recentTokensByDeployer <= 3,
         hasSocial: !!token.rawData?.twitterHandle || !!token.rawData?.discordLink || !!token.rawData?.website,
         largeCap: marketCap >= 10_000, // estimated cap must be ≥ $10K
+        deployerWhale: !deployerWhale
     };
 
     const score = Object.values(details).filter(Boolean).length;

@@ -2,10 +2,13 @@
 
 import { Connection, Keypair, PublicKey } from "@solana/web3.js";
 import bs58 from "bs58";
+import { NATIVE_MINT } from "@solana/spl-token";
 import {
     ASSOCIATED_TOKEN_PROGRAM_ID,
     TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
+
+export const SOL_MINT = NATIVE_MINT;
 
 // Support dynamic switching between environments
 const isMainnet = process.env.USE_MAINNET === "true";

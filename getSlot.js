@@ -1,15 +1,8 @@
-// getSlot.js
-import { config } from "dotenv";            // if you’re using a .env file
+// getSlot.js (ESM-compatible)
 import { Connection } from "@solana/web3.js";
 
-config();                                    // load .env vars
+const endpoint = "https://compatible-crimson-sun.solana-mainnet.quiknode.pro/51f66c0dfd5baaf8ab48adcb9876f8d93be7e29c/";
+const solana = new Connection(endpoint);
 
-const QUICKNODE_RPC = process.env.QUICKNODE_RPC
-    || "https://tame-light-tree.solana-devnet.quiknode.pro/44b4ce9fcfffd532ab71c163b478ccb5a8dcb8d1/";
-
-(async () => {
-    const connection = new Connection(QUICKNODE_RPC);
-    const slot = await connection.getSlot();
-    console.log("Current slot:", slot);
-})();
-
+const slot = await solana.getSlot();
+console.log("✅ Current slot:", slot);

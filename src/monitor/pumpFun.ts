@@ -2,11 +2,11 @@
 
 import fetch from "node-fetch";
 import { PublicKey } from "@solana/web3.js";
-import { Jupiter } from "@jup-ag/core";
-import { getLpLiquidity } from "../utils/jupiter.js";
+import {getLpLiquidityDirectly, getLpLiquidityFromPump} from "../utils/getLpLiquidity.js";
 import { hasDirectJupiterRoute } from "../utils/hasDirectJupiterRoute.js";
 import { getLpTokenAddress } from "../utils/getLpTokenAddress.js";
 import { getJupiter } from "../utils/jupiterInstance.js";
+import { normalizeMint } from "../utils/normalizeMint.js"; // ✅ IMPORTED
 
 export interface PumpToken {
     rawData?: any;
@@ -43,29 +43,49 @@ export const monitorPumpFun = async (onNewToken: (token: PumpToken) => void) => 
             });
 
             const text = await res.text();
-            console.log("🔍 Raw response:\n", text);
+
+            if (!text.startsWith("[")) {
+                console.warn("⚠️ Unexpected response format from pump.fun");
+                return;
+            }
 
             const data = JSON.parse(text);
             const now = Date.now();
 
             for (const item of data) {
-                const mint = item.mint;
-                if (!mint) continue;
+                const rawMint = item.mint;
+                if (!rawMint) continue;
+
+                const mint = normalizeMint(rawMint); // ✅ CLEANING THE MINT
+                if (!mint) {
+                    console.warn(`❌ Skipping invalid mint: ${rawMint}`);
+                    continue;
+                }
 
                 if (!seenMints[mint] || now - seenMints[mint] > SEEN_TTL_MS) {
                     seenMints[mint] = now;
 
                     const tokenMint = new PublicKey(mint);
 
-                    const hasJupiterRoute = await hasDirectJupiterRoute(jupiter, solMint, tokenMint);
+                    if (!jupiter) {
+                        console.warn(`⚠️ Jupiter instance unavailable for ${tokenMint}`);
+                        return;
+                    }
+
+                    await new Promise((res) => setTimeout(res, 5000)); // Let Pump populate data
+
+                    const liquidityInfo = await getLpLiquidityDirectly(mint);
+                    const simulatedLp = liquidityInfo?.lpSol ?? 0;
+                    const earlyHolders = liquidityInfo?.earlyHolders ?? 0;
+
                     const lpTokenAddress = await getLpTokenAddress(jupiter, solMint, tokenMint);
-                    const simulatedLp = await getLpLiquidity(jupiter, solMint.toBase58(), mint) ?? 0;
+                    const hasJupiterRoute = await hasDirectJupiterRoute(jupiter, solMint, tokenMint);
 
                     const token: PumpToken = {
                         rawData: item,
                         mint,
                         creator: item.creatorKey || "unknown",
-                        launchedAt: new Date(item.createdAt).getTime(),
+                        launchedAt: Math.floor(new Date(item.createdAt).getTime() / 1000),
                         simulatedLp,
                         hasJupiterRoute,
                         lpTokenAddress,
@@ -74,11 +94,19 @@ export const monitorPumpFun = async (onNewToken: (token: PumpToken) => void) => 
                             symbol: item.symbol,
                             decimals: 9,
                         },
-                        earlyHolders: item.earlyBuyerCount ?? 0,
+                        earlyHolders,
                         launchSpeedSeconds: item.timeToPoolCreationSeconds ?? 0,
                     };
 
                     console.log("🟢 Detected new pump.fun token:", token.mint);
+                    console.log("🧪 Token debug:", {
+                        mint,
+                        simulatedLp,
+                        earlyHolders,
+                        lpTokenAddress,
+                        hasJupiterRoute,
+                    });
+
                     onNewToken(token);
                 }
             }

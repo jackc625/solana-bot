@@ -1,3 +1,5 @@
+// src/core/safety.ts
+
 import { Connection, PublicKey, LAMPORTS_PER_SOL } from "@solana/web3.js";
 import { MintLayout, TOKEN_PROGRAM_ID, NATIVE_MINT } from "@solana/spl-token";
 import * as JSBI from "jsbi";
@@ -9,9 +11,10 @@ import { Jupiter } from "@jup-ag/core";
 import { loadBotConfig } from "../config/index.js";
 import { addToBlacklist } from "../utils/blacklist.js";
 import { getPumpMetadata } from "../utils/pump.js";
-import { getSharedJupiter } from "../utils/jupiter.js";
-
-const config = loadBotConfig();
+import { getSharedJupiter, simulateBuySell } from "../utils/jupiter.js";
+import { SOL_MINT } from "../utils/solana.js";
+import { sendTelegramMessage } from "../utils/telegram.js";
+import { scoreToken } from "./scoring.js";
 
 // --- Config schema & types
 type RawConfig = unknown;
@@ -20,6 +23,7 @@ const ConfigSchema = z.object({
     maxLiquidity: z.number().nonnegative().optional(),
     maxTaxPercent: z.number().min(0).max(100),
     honeypotCheck: z.boolean().default(true),
+    honeypotSellTaxThreshold: z.number().min(0).max(100).optional(),
 });
 type Config = z.infer<typeof ConfigSchema>;
 
@@ -30,9 +34,9 @@ export interface SafetyResult {
 }
 
 const evaluatedTokens = new Map<string, number>();
-const SAFETY_TTL_MS = 10 * 60 * 1000; // 10 minutes
+const SAFETY_TTL_MS = 10 * 60 * 1000;
 
-// Clean up old entries periodically
+// Periodic cleanup
 setInterval(() => {
     const now = Date.now();
     for (const [mint, ts] of evaluatedTokens.entries()) {
@@ -47,9 +51,10 @@ const blacklistPath = path.resolve(
     new URL("../..", import.meta.url).pathname,
     "config/blacklist.json"
 );
-let _blacklist: string[] | null = null;
+let _blacklist: string[] = [];
+
 async function loadBlacklist(): Promise<string[]> {
-    if (_blacklist) return _blacklist;
+    if (_blacklist.length > 0) return _blacklist;
     try {
         const data = await fs.readFile(blacklistPath, "utf-8");
         _blacklist = JSON.parse(data) as string[];
@@ -58,6 +63,7 @@ async function loadBlacklist(): Promise<string[]> {
     }
     return _blacklist;
 }
+
 
 // --- Helper to get mint info
 async function getMintInfo(
@@ -72,29 +78,22 @@ async function getMintInfo(
     if (!mintAccount) throw new Error("Mint account not found");
 
     const mintInfo = MintLayout.decode(mintAccount.data);
-    const supply = mintInfo.supply as bigint;
-    const mintAuthority = mintInfo.mintAuthorityOption
-        ? new PublicKey(mintInfo.mintAuthority)
-        : null;
-    const freezeAuthority = mintInfo.freezeAuthorityOption
-        ? new PublicKey(mintInfo.freezeAuthority)
-        : null;
-
     return {
-        supply,
-        mintAuthority,
-        freezeAuthority,
+        supply: mintInfo.supply as bigint,
+        mintAuthority: mintInfo.mintAuthorityOption ? new PublicKey(mintInfo.mintAuthority) : null,
+        freezeAuthority: mintInfo.freezeAuthorityOption ? new PublicKey(mintInfo.freezeAuthority) : null,
     };
 }
 
-// --- Honeypot detection via Jupiter aggregator
+// --- Honeypot detection via Jupiter
 async function simulateSwapTaxes(
     tokenMint: PublicKey,
     connection: Connection,
-    walletPubkey: PublicKey
+    walletPubkey: PublicKey,
+    rawConfig: RawConfig
 ): Promise<{ sellTax: number; buyTax: number; isHoneypot: boolean }> {
+    const config = ConfigSchema.parse(rawConfig);
     const jupiter = await getSharedJupiter(walletPubkey);
-
 
     const amountInSol = 0.1;
     const lamportsCount = Math.floor(amountInSol * LAMPORTS_PER_SOL);
@@ -112,9 +111,7 @@ async function simulateSwapTaxes(
     const buyTax = buyOut > 0 ? 1 - buyOut / amountInSol / 1e9 : 1;
 
     const sellSimulations: number[] = [];
-    const sellAttempts = 3;
-
-    for (let i = 0; i < sellAttempts; i++) {
+    for (let i = 0; i < 3; i++) {
         const sellRoute = await jupiter.computeRoutes({
             inputMint: tokenMint,
             outputMint: NATIVE_MINT,
@@ -125,19 +122,12 @@ async function simulateSwapTaxes(
         const sell = sellRoute.routesInfos?.[0];
         const sellOut = sell?.outAmount ? Number(sell.outAmount.toString()) : 0;
 
-        if (sellOut === 0) {
-            sellSimulations.push(1); // 100% loss
-        } else {
-            const tax = 1 - sellOut / (buyOut / 1e9);
-            sellSimulations.push(Math.min(Math.max(tax, 0), 1));
-        }
-
-        await new Promise((r) => setTimeout(r, 750)); // slight delay
+        sellSimulations.push(sellOut === 0 ? 1 : Math.min(1 - sellOut / (buyOut / 1e9), 1));
+        await new Promise((r) => setTimeout(r, 750));
     }
 
     const avgSellTax = sellSimulations.reduce((a, b) => a + b, 0) / sellSimulations.length;
-    const honeypotThreshold = config.honeypotSellTaxThreshold ?? 95;
-    const isHoneypot = avgSellTax * 100 >= honeypotThreshold;
+    const isHoneypot = avgSellTax * 100 >= (config.honeypotSellTaxThreshold ?? 95);
 
     return {
         buyTax: Math.min(Math.max(buyTax, 0), 1),
@@ -157,142 +147,139 @@ export async function checkTokenSafety(
         const config = ConfigSchema.parse(rawConfig);
         const blacklist = await loadBlacklist();
 
-        if (evaluatedTokens.has(token.mint)) {
-            console.log(`✅ Skipping re-check for ${token.mint} — already evaluated recently`);
-            return { passed: true };
+        const now = Date.now();
+        const tokenAge = now - token.launchedAt * 1000;
+        if (tokenAge < 30_000) {
+            return { passed: false, reason: "Token too new — retry later" };
         }
 
-        // Cache this token as evaluated
-        evaluatedTokens.set(token.mint, Date.now());
+        if (evaluatedTokens.has(token.mint)) return { passed: true };
+        evaluatedTokens.set(token.mint, now);
 
         if (blacklist.map((c) => c.toLowerCase()).includes(token.creator.toLowerCase())) {
+            await sendTelegramMessage(`🛑 *Blocked token* \`${token.mint}\` — Creator is *blacklisted*`);
             return { passed: false, reason: "Creator is blacklisted" };
         }
 
-        console.log(`Liquidity for ${token.mint}: ${token.simulatedLp} SOL`);
-        if (token.simulatedLp < config.minLiquidity) {
+        if (!token.simulatedLp || token.simulatedLp < config.minLiquidity) {
             return { passed: false, reason: `Liquidity < ${config.minLiquidity} SOL` };
         }
+
         if (typeof config.maxLiquidity === "number" && token.simulatedLp > config.maxLiquidity) {
             return { passed: false, reason: `Liquidity > ${config.maxLiquidity} SOL (whale trap)` };
         }
 
-        const accountInfo = await connection.getAccountInfo(new PublicKey(token.lpTokenAddress));
-        if (!accountInfo) {
-            console.log(`🔥 LP token account ${token.lpTokenAddress} is burned — SAFE`);
-        } else {
-            const owner = accountInfo.owner.toBase58();
-            const knownLockers = [
-                "GnftVbZgDfFPgG7gPfsGgiUvkzzTxkN2PmdpZRU1iPd",
-                "8crxnUjgyZQV7u9RQwnKeZKpYtVCULFki4uejFhnU3MJ",
-                "3LSL4MfHRpDn59z7pkCjXEV6d8AoPtaMauMEii8n1ZRJ",
-            ];
-            if (knownLockers.includes(owner)) {
-                console.log(`🔒 LP token is locked with: ${owner}`);
-            } else {
+        let accountInfo;
+        try {
+            accountInfo = await connection.getAccountInfo(new PublicKey(token.lpTokenAddress));
+        } catch {
+            return { passed: false, reason: "Invalid LP token address" };
+        }
+
+        if (!accountInfo) return { passed: true };
+
+        const tokenAmountInfo = await connection.getTokenAccountBalance(new PublicKey(token.lpTokenAddress));
+        const lpBalance = tokenAmountInfo?.value?.uiAmount ?? 0;
+        if (lpBalance === 0) return { passed: true };
+
+        const owner = accountInfo.owner.toBase58();
+        const knownLockers = [
+            "GnftVbZgDfFPgG7gPfsGgiUvkzzTxkN2PmdpZRU1iPd",
+            "8crxnUjgyZQV7u9RQwnKeZKpYtVCULFki4uejFhnU3MJ",
+            "3LSL4MfHRpDn59z7pkCjXEV6d8AoPtaMauMEii8n1ZRJ",
+        ];
+
+        if (!knownLockers.includes(owner)) {
+            const ownerInfo = await connection.getAccountInfo(new PublicKey(owner));
+            const isSystem = owner === "11111111111111111111111111111111";
+            if (!(ownerInfo?.executable || isSystem)) {
                 await addToBlacklist(token.creator);
-                return { passed: false, reason: `LP token is not locked (owner = ${owner})` };
+                await sendTelegramMessage(`🛑 *Blocked token* \`${token.mint}\` — LP not locked (owner = ${owner})`);
+                return { passed: false, reason: `LP not locked` };
             }
         }
 
         const meta = await getPumpMetadata(token.mint);
-        if (!meta) {
-            return {
-                passed: false,
-                reason: "Failed to fetch pump.fun metadata",
-            };
-        }
+        if (!meta) return { passed: false, reason: "Failed to fetch pump.fun metadata" };
 
-        // 🧠 Check if creator holds >10% of supply
-        const { supply, mintAuthority, freezeAuthority } = await getMintInfo(
-            connection,
-            new PublicKey(token.mint)
-        );
+        const { supply, mintAuthority, freezeAuthority } = await getMintInfo(connection, new PublicKey(token.mint));
         const totalSupply = Number(supply) / 1e9;
 
-        const largestHolders = await connection.getTokenLargestAccounts(
-            new PublicKey(token.mint)
-        );
-
-        const creatorHoldings = largestHolders.value.find((a) =>
-            a.address.toBase58() === meta.creator ||
+        const largest = await connection.getTokenLargestAccounts(new PublicKey(token.mint));
+        const largestBalance = largest.value[0]?.uiAmount ?? 0;
+        const creatorHoldings = largest.value.find((a) =>
             a.address.toBase58().toLowerCase() === meta.creator.toLowerCase()
         );
         const creatorBalance = creatorHoldings?.uiAmount ?? 0;
 
         if (creatorBalance / totalSupply >= 0.1) {
             await addToBlacklist(meta.creator);
-            return {
-                passed: false,
-                reason: `Creator holds ${(
-                    (creatorBalance / totalSupply) *
-                    100
-                ).toFixed(1)}% of supply — possible whale rug`,
-            };
+            return { passed: false, reason: `Creator holds ${((creatorBalance / totalSupply) * 100).toFixed(1)}%` };
         }
 
-        // 🚨 Check if creator and first buyer are the same
         if (meta.creator === meta.firstBuyer) {
             await addToBlacklist(meta.creator);
-            return {
-                passed: false,
-                reason: "Creator is also first buyer — likely front-run",
-            };
+            return { passed: false, reason: "Creator is also first buyer" };
         }
 
         if (mintAuthority) {
             await addToBlacklist(token.creator);
-            return {
-                passed: false,
-                reason: `Mint authority exists: ${mintAuthority.toBase58()}`,
-            };
+            return { passed: false, reason: "Mint authority exists" };
         }
 
         if (freezeAuthority) {
             await addToBlacklist(token.creator);
-            return {
-                passed: false,
-                reason: `Freeze authority exists: ${freezeAuthority.toBase58()}`,
-            };
+            return { passed: false, reason: "Freeze authority exists" };
         }
 
-        const largest = await connection.getTokenLargestAccounts(new PublicKey(token.mint));
-        const largestBalance = largest.value[0]?.uiAmount ?? 0;
-
         if (largestBalance > 0.2 * totalSupply) {
-            return {
-                passed: false,
-                reason: "Top wallet holds >20% — possible dev wallet or whale trap",
-            };
+            return { passed: false, reason: "Top wallet holds >20%" };
         }
 
         if (config.honeypotCheck) {
-            const { buyTax, sellTax, isHoneypot } = await simulateSwapTaxes(
-                new PublicKey(token.mint),
-                connection,
-                walletPubkey
-            );
-
-            console.log(`💸 Tax Check: Buy = ${(buyTax * 100).toFixed(1)}%, Sell = ${(sellTax * 100).toFixed(1)}%`);
-
-            if (isHoneypot) {
-                await addToBlacklist(token.creator);
-                return { passed: false, reason: "Honeypot or 100% sell tax detected" };
-            }
-
-            if (buyTax * 100 > config.maxTaxPercent || sellTax * 100 > config.maxTaxPercent) {
-                return {
-                    passed: false,
-                    reason: `Tax too high: Buy ${buyTax * 100}%, Sell ${sellTax * 100}%`,
-                };
+            try {
+                const { buyTax, sellTax, isHoneypot } = await simulateSwapTaxes(
+                    new PublicKey(token.mint),
+                    connection,
+                    walletPubkey,
+                    config
+                );
+                if (isHoneypot) {
+                    await addToBlacklist(token.creator);
+                    return { passed: false, reason: "Honeypot or 100% sell tax" };
+                }
+                if (buyTax * 100 > config.maxTaxPercent || sellTax * 100 > config.maxTaxPercent) {
+                    return {
+                        passed: false,
+                        reason: `Tax too high: Buy ${(buyTax * 100).toFixed(1)}%, Sell ${(sellTax * 100).toFixed(1)}%`,
+                    };
+                }
+            } catch (err) {
+                return { passed: false, reason: "Jupiter route simulation failed" };
             }
         }
 
+        const simAmount = 0.01 * 1e9;
+        const { passed, buyPass, sellPass } = await simulateBuySell(
+            walletPubkey,
+            SOL_MINT.toBase58(),
+            token.mint,
+            simAmount
+        );
+        if (!passed) {
+            await addToBlacklist(token.mint);
+            return { passed: false, reason: `Simulation failed (buy: ${buyPass}, sell: ${sellPass})` };
+        }
+
+        const { score, details } = await scoreToken(token);
+        let msg = `✅ *Token Passed Safety Check*\nScore: ${score}/7\n`;
+        for (const [key, val] of Object.entries(details)) {
+            msg += `${val ? "✔️" : "❌"} ${key}\n`;
+        }
+        await sendTelegramMessage(msg);
+
         return { passed: true };
     } catch (err) {
-        return {
-            passed: false,
-            reason: `Safety check error: ${(err as Error).message}`,
-        };
+        return { passed: false, reason: `Safety check error: ${(err as Error).message}` };
     }
 }

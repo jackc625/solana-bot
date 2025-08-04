@@ -1,7 +1,7 @@
 // src/utils/getLpTokenAddress.ts
 
 import { PublicKey } from "@solana/web3.js";
-import { Jupiter, RouteInfo } from "@jup-ag/core";
+import { Jupiter } from "@jup-ag/core";
 import JSBI from "jsbi";
 import { jupiterQueue } from "./jupiter.js";
 
@@ -20,24 +20,19 @@ export const getLpTokenAddress = async (
                 forceFetch: true,
             });
 
-            const bestRoute: RouteInfo | undefined = routes?.routesInfos?.[0];
+            const bestRoute = routes?.routesInfos?.[0];
+            const market = bestRoute?.marketInfos?.[0];
 
-            // Jupiter no longer exposes lpAddress directly, so this is just a fallback
-            const firstMarket = bestRoute?.marketInfos?.[0];
-
-            const fallback = inputMint.toBase58().slice(0, 4) + outputMint.toBase58().slice(-4);
-            const simulated = `SimulatedLP_${fallback}`;
-
-            if (!firstMarket) {
-                console.warn("⚠️ No marketInfos found in best route.");
-                return simulated;
+            if (market) {
+                const marketLabel = market?.amm.label ?? "unknown";
+                const pair = `${inputMint.toBase58().slice(0, 4)}-${outputMint.toBase58().slice(0, 4)}`;
+                return `LP_${marketLabel}_${pair}`;
             }
 
-            // Custom fallback format if lpAddress is not present
-            return simulated;
+            return "LP_unknown";
         } catch (err) {
             console.warn("⚠️ Failed to compute LP token address:", (err as Error).message);
-            return "SimulatedLP_unknown";
+            return "LP_unknown";
         }
     });
 };

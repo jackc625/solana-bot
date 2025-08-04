@@ -1,3 +1,5 @@
+// src/utils/hasDirectJupiterRoute.ts
+
 import { PublicKey } from "@solana/web3.js";
 import { Jupiter } from "@jup-ag/core";
 import JSBI from "jsbi";
@@ -21,11 +23,13 @@ export const hasDirectJupiterRoute = async (
                 onlyDirectRoutes: true,
             });
 
-            return routes?.routesInfos?.length > 0;
+            return (routes?.routesInfos?.length ?? 0) > 0;
         } catch (e: any) {
-            console.warn(`⚠️ Failed to check Jupiter route for ${inputMint.toBase58()} ↔ ${outputMint.toBase58()}:`, e?.message || e);
+            console.warn(
+                `⚠️ Failed to check Jupiter route for ${inputMint.toBase58()} ↔ ${outputMint.toBase58()}:`,
+                e?.message || e
+            );
             return false;
         }
     });
 };
-
