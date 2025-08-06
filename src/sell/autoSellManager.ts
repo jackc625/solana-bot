@@ -124,7 +124,7 @@ export async function runAutoSellLoop() {
                 );
 
                 if (!dryRun) {
-                    await sellToken(connection, wallet, mint, amount, dryRun);
+                    await sellToken(connection, wallet, mint, amount, dryRun, config.priorityFee ?? 0.00001, config.pool ?? "auto");
 
                     await logTrade({
                         type: "SELL",
@@ -230,7 +230,7 @@ export async function startSellWatcher(pos: ActivePosition) {
             );
 
             if (!dryRun) {
-                await sellToken(connection, wallet, mint, amount, dryRun);
+                await sellToken(connection, wallet, mint, amount, dryRun, config.priorityFee ?? 0.00001, config.pool ?? "auto");
                 await logTrade({
                     type: "SELL",
                     token: mint,

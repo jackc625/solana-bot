@@ -26,6 +26,8 @@ export interface BotConfig {
     checkIntervalMs: number;
     targetRoi: number;
     stopLossRoi: number;
+    priorityFee?: number;
+    pool?: string;
 }
 
 export const loadBotConfig = (): BotConfig => {
@@ -60,6 +62,8 @@ export const loadBotConfig = (): BotConfig => {
             checkIntervalMs: json.checkIntervalMs ?? 5000,
             targetRoi: json.targetRoi ?? 0.5,
             stopLossRoi: json.stopLossRoi ?? -0.25,
+            priorityFee: json.priorityFee ?? 0.00001,
+            pool: json.pool ?? "auto",
         };
 
         config.fallbackMs = config.fallbackMinutes * 60 * 1000;

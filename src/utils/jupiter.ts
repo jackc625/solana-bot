@@ -43,8 +43,9 @@ setInterval(() => {
 }, 60_000); // Run every 60 seconds
 
 const jupiterQueue = new PQueue({
+    concurrency: 1,
     interval: 1000,
-    intervalCap: 10,
+    intervalCap: 5,
     carryoverConcurrencyCount: true,
 });
 
@@ -114,6 +115,7 @@ export async function computeSwap(
         if (msg.includes("429") || msg.includes("Too Many Requests")) {
             consecutive429s += 1;
             console.warn(`⚠️  Jupiter 429 (${consecutive429s}x)`);
+            triggerCooldown(15_000);
         } else if (msg.includes("Assertion failed")) {
             consecutiveFails += 1;
             if (consecutiveFails >= 3) {

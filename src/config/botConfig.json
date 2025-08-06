@@ -1,5 +1,5 @@
 {
-  "dryRun": true,
+  "dryRun": false,
   "minLiquidity": 1,
   "maxLiquidity": 100,
   "scoreThreshold": 4,
@@ -20,5 +20,7 @@
   "maxHoldMs": 120000,
   "checkIntervalMs": 5000,
   "targetRoi": 0.2,
-  "stopLossRoi": -0.1
+  "stopLossRoi": -0.1,
+  "priorityFee": 0.00001,
+  "pool": "auto"
 }

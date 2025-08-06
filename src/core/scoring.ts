@@ -1,8 +1,11 @@
 // src/core/scoring.ts
 
-import { PumpToken } from "../monitor/pumpFun.js";
-import { PublicKey } from "@solana/web3.js"
+import { PublicKey, Connection } from "@solana/web3.js";
 import { connection } from "../utils/solana.js";
+import { PumpToken } from "../types/PumpToken.js";
+import { getLaunchCount } from "../state/deployerHistory.js";
+import { MintLayout, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from "@solana/spl-token";
+import { PROGRAM_ID as TOKEN_METADATA_PROGRAM_ID } from "@metaplex-foundation/mpl-token-metadata";
 
 export interface ScoreResult {
     score: number;
@@ -17,58 +20,102 @@ export interface ScoreResult {
     };
 }
 
+/**
+ * Estimate market cap based on simulated LP and assumed supply.
+ */
 function estimateMarketCap(token: PumpToken): number {
     const liquidity = token.simulatedLp || 0;
-    const pricePerToken = liquidity > 0 ? 2 / liquidity : 0; // rough estimation
-    const supply = Math.pow(10, token.metadata.decimals || 9); // assume 1B tokens if unknown
-
+    const pricePerToken = liquidity > 0 ? 2 / liquidity : 0;
+    const supply = Math.pow(10, token.metadata.decimals ?? 9);
     return supply * pricePerToken;
 }
 
-async function fetchDeployerHistory(creator: string): Promise<number> {
-    try {
-        const res = await fetch("https://pump.fun/api/runners");
-        const data = await res.json();
-
-        const recentCount = data.filter((entry: any) => {
-            const coin = entry.coin;
-            return coin && coin.creator === creator;
-        }).length;
-
-        return recentCount;
-    } catch (err) {
-        console.error("⚠️ Failed to fetch deployer history:", err);
-        return 0;
-    }
+/**
+ * Check for an on-chain Metaplex metadata account.
+ */
+async function hasOnchainMetadata(
+    conn: Connection,
+    mint: PublicKey
+): Promise<boolean> {
+    const [pda] = await PublicKey.findProgramAddress(
+        [
+            Buffer.from("metadata"),
+            TOKEN_METADATA_PROGRAM_ID.toBuffer(),
+            mint.toBuffer(),
+        ],
+        TOKEN_METADATA_PROGRAM_ID
+    );
+    const info = await conn.getAccountInfo(pda);
+    return info !== null;
 }
 
-export const scoreToken = async (token: PumpToken): Promise<ScoreResult> => {
-    const recentTokensByDeployer = await fetchDeployerHistory(token.creator);
-    const marketCap = estimateMarketCap(token);
-    let deployerWhale = false;
+export const scoreToken = async (
+    token: PumpToken
+): Promise<ScoreResult> => {
+    const mintPubkey = new PublicKey(token.mint);
 
+    // 1) Metadata existence
+    const metadata = await hasOnchainMetadata(connection, mintPubkey);
+
+    // 2) Early holders threshold
+    const earlyHolders = token.earlyHolders >= 75;
+
+    // 3) Launch speed threshold
+    const launchSpeed = token.launchSpeedSeconds <= 120;
+
+    // 4) Deployer cleanliness: <=3 launches in past hour
+    const cleanDeployer = getLaunchCount(token.creator) <= 3;
+
+    // 5) Social presence placeholder
+    const hasSocial = false;
+
+    // 6) Market cap minimum
+    const largeCap = estimateMarketCap(token) >= 10_000;
+
+    // 7) Deployer whale check: holds <=20% of total supply
+    let isWhale = false;
     try {
-        const mintPubkey = new PublicKey(token.mint);
-        const largestAccounts = await connection.getTokenLargestAccounts(mintPubkey);
-        const topAccount = largestAccounts.value[0];
-        const topAmount = topAccount?.uiAmount ?? 0;
+        const acct = await connection.getAccountInfo(mintPubkey);
+        if (acct) {
+            const mintInfo = MintLayout.decode(acct.data);
+            const rawSupply = mintInfo.supply as bigint;
+            const supply = Number(rawSupply) / Math.pow(10, token.metadata.decimals ?? 9);
 
-        deployerWhale = topAmount >= 200_000_000; // 20% of 1B assumed total
-    } catch (err) {
-        console.warn(`⚠️ Failed to check largest token holder:`, err);
+            const largest = await connection.getTokenLargestAccounts(mintPubkey);
+            // derive deployer's ATA
+            const [ata] = await PublicKey.findProgramAddress(
+                [
+                    new PublicKey(token.creator).toBuffer(),
+                    TOKEN_PROGRAM_ID.toBuffer(),
+                    mintPubkey.toBuffer(),
+                ],
+                ASSOCIATED_TOKEN_PROGRAM_ID
+            );
+
+            const topEntry = largest.value.find((e) => {
+                // e.address may be PublicKey or string
+                if (typeof e.address === "string") return e.address === ata.toBase58();
+                if (e.address instanceof PublicKey) return e.address.equals(ata);
+                return false;
+            });
+
+            const bal = topEntry?.uiAmount ?? 0;
+            isWhale = supply > 0 && bal / supply > 0.2;
+        }
+    } catch {
+        isWhale = false;
     }
 
     const details = {
-        metadata: !!(token.metadata.name && token.metadata.symbol && token.metadata.decimals !== undefined),
-        earlyHolders: token.earlyHolders >= 75,
-        launchSpeed: token.launchSpeedSeconds <= 120,
-        cleanDeployer: recentTokensByDeployer <= 3,
-        hasSocial: !!token.rawData?.twitterHandle || !!token.rawData?.discordLink || !!token.rawData?.website,
-        largeCap: marketCap >= 10_000, // estimated cap must be ≥ $10K
-        deployerWhale: !deployerWhale
+        metadata,
+        earlyHolders,
+        launchSpeed,
+        cleanDeployer,
+        hasSocial,
+        largeCap,
+        deployerWhale: !isWhale,
     };
 
     const score = Object.values(details).filter(Boolean).length;
-
     return { score, details };
 };

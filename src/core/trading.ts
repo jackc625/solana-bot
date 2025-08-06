@@ -9,49 +9,47 @@ import { shouldCooldown } from "../utils/globalCooldown.js";
 import { ComputeBudgetProgram, TransactionMessage, VersionedTransaction } from "@solana/web3.js";
 import { logTrade } from "../utils/logger.js";
 import { getJupiter } from "../utils/jupiterInstance.js";
+import { loadWallet } from "../utils/solana.js";
+import {sendPumpTrade} from "../utils/pumpTrade.js";
 
 const config = loadBotConfig();
+const wallet = loadWallet();
+if (!wallet) throw new Error("Wallet not loaded");
 
 export async function executeBuy(
     connection: Connection,
     wallet: Keypair,
-    inputMint: string,
-    outputMint: string,
+    _inputMint: string, // ignored
+    tokenMint: string,
     amount: number,
-    slippageBps: number
+    _slippageBps: number // ignored
 ) {
     try {
-        const jupiter = await getJupiter();
-        if (!jupiter) throw new Error("❌ Jupiter instance unavailable");
-
-        const route = await computeSwap(outputMint, amount, wallet.publicKey);
-        if (!route) {
-            console.log("❌ No valid route found for buy.");
-            return;
-        }
-
-        const { swapTransaction } = await jupiter.exchange({
-            routeInfo: route,
-            userPublicKey: wallet.publicKey,
-            wrapUnwrapSOL: false,
-            computeUnitPriceMicroLamports: 50_000, // ✅ priority fee built-in
+        const txid = await sendPumpTrade({
+            connection,
+            wallet,
+            mint: tokenMint,
+            amount,
+            action: "buy",
+            denominatedInSol: true,
+            slippage: config.slippage,
+            priorityFee: config.priorityFee ?? 0.00001,
+            pool: "auto"
         });
 
-        if (!swapTransaction) {
-            console.error("❌ Failed to build swap transaction");
+        if (!txid) {
+            console.error("❌ Buy TX failed");
             return;
         }
 
-        (swapTransaction as VersionedTransaction).sign([wallet]);
-        const txid = await connection.sendTransaction(swapTransaction as VersionedTransaction);
         console.log(`✅ Buy executed: https://solscan.io/tx/${txid}`);
 
         await logTrade({
             type: "BUY",
-            token: outputMint,
+            token: tokenMint,
             txid,
             amount,
-            pricePerToken: amount > 0 ? (amount / 1) : 0, // rough placeholder
+            pricePerToken: 0, // optional: update with real price if available
             dryRun: false,
         });
 
@@ -74,11 +72,8 @@ export async function snipeToken(
         return;
     }
 
-    const SOL_MINT = "So11111111111111111111111111111111111111112";
-    const slippageBps = config.slippage * 100;
-
     try {
-        await executeBuy(connection, wallet, SOL_MINT, tokenMint, amount, slippageBps);
+        await executeBuy(connection, wallet, "", tokenMint, amount, 0); // inputMint/slippageBps unused now
     } catch (err) {
         console.error(`❌ Buy failed for ${tokenMint}:`, err);
     }
@@ -89,7 +84,9 @@ export async function sellToken(
     wallet: Keypair,
     tokenMint: string,
     amount: number,
-    dryRun: boolean
+    dryRun: boolean,
+    priorityFee: number,
+    pool: string
 ) {
     console.log(`🔴 [SELLING] Token ${tokenMint} | Amount: ${amount} | DryRun: ${dryRun}`);
 
@@ -98,15 +95,39 @@ export async function sellToken(
         return;
     }
 
-    const SOL_MINT = "So11111111111111111111111111111111111111112";
-    const slippageBps = config.slippage * 100;
-
     try {
-        await executeBuy(connection, wallet, tokenMint, SOL_MINT, amount, slippageBps);
+        const txid = await sendPumpTrade({
+            connection,
+            wallet,
+            mint: tokenMint,
+            amount,
+            action: "sell",
+            denominatedInSol: false, // selling tokens, not SOL
+            slippage: config.slippage,
+            priorityFee,
+            pool
+        });
+
+        if (!txid) {
+            console.error("❌ Sell TX failed");
+            return;
+        }
+
+        console.log(`✅ Sell executed: https://solscan.io/tx/${txid}`);
+
+        await logTrade({
+            type: "SELL",
+            token: tokenMint,
+            txid,
+            amount,
+            pricePerToken: 0, // optionally update later
+            dryRun: false,
+        });
     } catch (err) {
         console.error(`❌ Sell failed for ${tokenMint}:`, err);
     }
 }
+
 
 export async function getCurrentPriceViaJupiter(
     mint: string,

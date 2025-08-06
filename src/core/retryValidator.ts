@@ -1,13 +1,14 @@
 // src/core/retryValidator.ts
 
 import { PublicKey } from "@solana/web3.js";
-import {getLpLiquidityDirectly, getLpLiquidityFromPump} from "../utils/getLpLiquidity.js";
+import {getLpLiquidityDirectly } from "../utils/getLpLiquidity.js";
 import { hasDirectJupiterRoute } from "../utils/hasDirectJupiterRoute.js";
 import { getLpTokenAddress } from "../utils/getLpTokenAddress.js";
-import { PumpToken } from "../monitor/pumpFun.js";
+import { PumpToken } from "../types/PumpToken.js";
 import { pendingTokens } from "../state/pendingTokens.js";
 import { getJupiter } from "../utils/jupiterInstance.js";
 import { normalizeMint } from "../utils/normalizeMint.js";
+import { loadWallet } from "../utils/solana.js";
 
 // Retry loop frequency
 const INTERVAL_MS = 2500;
@@ -15,12 +16,14 @@ const INTERVAL_MS = 2500;
 const MAX_ATTEMPTS = 6;
 // Delay between retries (used in setTimeout)
 const RETRY_DELAY_MS = 10_000;
+const wallet = loadWallet();
+if (!wallet) throw new Error("Wallet not loaded");
 
 // Track retry attempts
 const retryAttempts: Record<string, number> = {};
 
 export const startRetryValidator = async (onValidToken: (token: PumpToken) => Promise<void>) => {
-    const jupiter = await getJupiter();
+    const jupiter = await getJupiter(wallet.publicKey);
     if (!jupiter) {
         console.warn("⚠️ Skipping retryValidator: Jupiter unavailable");
         return;
@@ -30,7 +33,15 @@ export const startRetryValidator = async (onValidToken: (token: PumpToken) => Pr
 
     setInterval(async () => {
         for (const [rawKey, token] of Array.from(pendingTokens.entries())) {
-            const normalized = normalizeMint(rawKey);
+
+            if (token.pool === "pump" || token.pool === "bonk") {
+                await onValidToken(token);
+                pendingTokens.delete(rawKey);
+                delete retryAttempts[rawKey];
+                continue;
+            }
+
+            const normalized = normalizeMint(rawKey, token.pool);
             if (!normalized) {
                 console.warn(`⚠️ Skipping invalid mint in retryValidator: ${rawKey}`);
                 pendingTokens.delete(rawKey);
@@ -43,7 +54,7 @@ export const startRetryValidator = async (onValidToken: (token: PumpToken) => Pr
 
             try {
                 const [liquidity, jupRoute, lpAddr] = await Promise.all([
-                    getLpLiquidityDirectly(normalized),
+                    getLpLiquidityDirectly(normalized, token.pool, wallet.publicKey),
                     hasDirectJupiterRoute(jupiter, solMint, tokenMint),
                     getLpTokenAddress(jupiter, solMint, tokenMint),
                 ]);

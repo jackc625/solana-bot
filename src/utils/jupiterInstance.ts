@@ -2,20 +2,18 @@
 
 import { Jupiter } from "@jup-ag/core";
 import { connection } from "./solana.js";
-import { Keypair } from "@solana/web3.js";
+import { PublicKey } from "@solana/web3.js";
 
 let jupiterInstance: Jupiter | null = null;
 
-export const getJupiter = async (): Promise<Jupiter | null> => {
+export const getJupiter = async (user: PublicKey): Promise<Jupiter | null> => {
     if (jupiterInstance) return jupiterInstance;
 
     try {
-        const dummyUser = Keypair.generate().publicKey;
-
         jupiterInstance = await Jupiter.load({
             connection,
             cluster: "mainnet-beta",
-            user: dummyUser,
+            user,
         });
 
         return jupiterInstance;

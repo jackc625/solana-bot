@@ -1,6 +1,6 @@
 // src/state/pendingTokens.ts
 
-import { PumpToken } from "../monitor/pumpFun.js";
+import { PumpToken } from "../types/PumpToken.js";
 
 /**
  * Global map of mint → PumpToken for tokens pending full validation.

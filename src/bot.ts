@@ -3,7 +3,6 @@
 import "./init/fetchPatch.js";
 import { loadBotConfig } from "./config/index.js";
 import { connection, loadWallet, getWalletAddress, RPC_URL } from "./utils/solana.js";
-import { PumpToken } from "./monitor/pumpFun.js";
 import { checkTokenSafety } from "./core/safety.js";
 import { scoreToken } from "./core/scoring.js";
 import { snipeToken, getCurrentPriceViaJupiter } from "./core/trading.js";
@@ -16,13 +15,13 @@ import {
 import { Connection, PublicKey, Keypair } from "@solana/web3.js";
 import { sleep } from "./utils/time.js";
 import { jupiterQueue } from "./utils/jupiter.js";
-import { monitorPumpSocket } from "./monitor/pumpSocket.js";
-import { monitorPumpFun } from "./monitor/pumpFun.js";
-import { monitorLivePumpFun } from "./monitor/livePump.js";
 import { startRetryValidator } from "./core/retryValidator.js";
 import { pendingTokens } from "./state/pendingTokens.js";
 import { sendTelegramMessage, startTelegramBot } from "./utils/telegram.js";
 import { normalizeMint } from "./utils/normalizeMint.js";
+import {monitorPumpPortal} from "./utils/pumpPortalSocket.js";
+import { PumpToken } from "./types/PumpToken.js";
+
 
 let lastSnipeTime = 0;
 const SNIPE_COOLDOWN_MS = 60_000;
@@ -65,17 +64,15 @@ async function main() {
     console.log("✅ Auto-sell loop started");
 
     // 🚨 Push into pending queue instead of processing instantly, with normalization
-    await monitorPumpSocket((token: PumpToken) => {
-        const cleaned = normalizeMint(token.mint);
-        if (!cleaned) {
-            console.warn("⚠️ Failed to normalize mint from socket:", token.mint);
-            return;
+    await monitorPumpPortal((token) => {
+        const norm = normalizeMint(token.mint, token.pool);
+        if (!norm) return;
+        if (!pendingTokens.has(norm)) {
+            pendingTokens.set(norm, { ...token, mint: norm });
+            console.log("🟢 Queued new token for validation:", norm);
         }
-        token.mint = cleaned; // ensure the token object carries the normalized mint
-        pendingTokens.set(cleaned, token);
     });
-    // await monitorPumpFun((token) => pendingTokens.set(token.mint, token));
-    // await monitorLivePumpFun((token) => pendingTokens.set(token.mint, token));
+
 
     // ✅ Start retry validator for deferred processing
     await startRetryValidator(handleValidatedToken);
@@ -128,6 +125,7 @@ async function handleValidatedToken(token: PumpToken) {
 
         let currentPrice: number | null = null;
         try {
+            await sleep(100 + Math.random() * 250);
             const priceResult = await getCurrentPriceViaJupiter(token.mint, buyAmount, wallet);
             if (!priceResult) {
                 console.log(`❌ Failed to simulate price for ${token.mint} — skipping`);
@@ -139,6 +137,7 @@ async function handleValidatedToken(token: PumpToken) {
             return;
         }
 
+        console.log(`🚀 Safety & score passed; sniping ${token.mint} for ${buyAmount} SOL`);
         await trySnipeToken(connection, wallet, token.mint, buyAmount, config.dryRun);
 
         await sendTelegramMessage(
