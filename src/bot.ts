@@ -125,8 +125,34 @@ async function handleValidatedToken(token: PumpToken) {
 
         let currentPrice: number | null = null;
         try {
-            await sleep(100 + Math.random() * 250);
-            const priceResult = await getCurrentPriceViaJupiter(token.mint, buyAmount, wallet);
+
+            // Add a retry loop to allow liquidity to form
+            let priceResult = null;
+            for (let attempt = 0; attempt < 3; attempt++) {
+                if (attempt > 0) {
+                    console.log(`🔁 Retry Jupiter quote for ${token.mint} (attempt ${attempt + 1})...`);
+                    await sleep(5000); // Wait 5 seconds before retrying
+                }
+
+                try {
+                    await sleep(100 + Math.random() * 250);
+                    priceResult = await getCurrentPriceViaJupiter(token.mint, buyAmount, wallet);
+                    if (priceResult) break;
+                } catch (err) {
+                    if (err instanceof Error) {
+                        console.warn(`⚠️ Jupiter quote attempt ${attempt + 1} failed:`, err.message);
+                    } else {
+                        console.warn(`⚠️ Jupiter quote attempt ${attempt + 1} failed:`, err);
+                    }
+
+                }
+            }
+
+            if (!priceResult) {
+                console.log(`❌ Failed to simulate price for ${token.mint} — skipping`);
+                return;
+            }
+
             if (!priceResult) {
                 console.log(`❌ Failed to simulate price for ${token.mint} — skipping`);
                 return;

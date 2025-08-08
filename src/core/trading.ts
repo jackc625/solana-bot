@@ -4,13 +4,15 @@ import { computeSwap } from "../utils/jupiter.js";
 import { Connection, Keypair, PublicKey } from "@solana/web3.js";
 import { loadBotConfig } from "../config/index.js";
 import { Jupiter, RouteInfo } from "@jup-ag/core";
-import JSBI from "jsbi";
+import JSBIImport from "jsbi";
 import { shouldCooldown } from "../utils/globalCooldown.js";
 import { ComputeBudgetProgram, TransactionMessage, VersionedTransaction } from "@solana/web3.js";
 import { logTrade } from "../utils/logger.js";
 import { getJupiter } from "../utils/jupiterInstance.js";
 import { loadWallet } from "../utils/solana.js";
 import {sendPumpTrade} from "../utils/pumpTrade.js";
+
+const JSBI: any = JSBIImport;
 
 const config = loadBotConfig();
 const wallet = loadWallet();

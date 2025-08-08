@@ -2,8 +2,10 @@
 
 import { PublicKey } from "@solana/web3.js";
 import { Jupiter } from "@jup-ag/core";
-import JSBI from "jsbi";
+import JSBIImport from "jsbi";
 import { jupiterQueue } from "./jupiter.js";
+
+const JSBI: any = JSBIImport;
 
 export const hasDirectJupiterRoute = async (
     jupiter: Jupiter,
@@ -17,7 +19,7 @@ export const hasDirectJupiterRoute = async (
             const routes = await jupiter.computeRoutes({
                 inputMint,
                 outputMint,
-                amount: (JSBI as any).BigInt(1_000_000), // 0.001 SOL
+                amount: JSBI.BigInt(1_000_000), // 0.001 SOL
                 slippageBps: 100,
                 forceFetch: true,
                 onlyDirectRoutes: true,

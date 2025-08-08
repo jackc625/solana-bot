@@ -1,8 +1,8 @@
 // src/core/safety.ts
 
 import { Connection, PublicKey, LAMPORTS_PER_SOL } from "@solana/web3.js";
-import { MintLayout, TOKEN_PROGRAM_ID, NATIVE_MINT } from "@solana/spl-token";
-import * as JSBI from "jsbi";
+import {MintLayout, TOKEN_PROGRAM_ID, NATIVE_MINT } from "@solana/spl-token";
+import JSBIImport from "jsbi";
 import { z } from "zod";
 import { PumpToken } from "../types/PumpToken.js";
 import { addToBlacklist } from "../utils/blacklist.js";
@@ -10,6 +10,8 @@ import { getSharedJupiter, simulateBuySell } from "../utils/jupiter.js";
 import { SOL_MINT } from "../utils/solana.js";
 import { sendTelegramMessage } from "../utils/telegram.js";
 import { scoreToken } from "./scoring.js";
+
+const JSBI: any = JSBIImport;
 
 // --- Config schema & types
 const ConfigSchema = z.object({
@@ -54,6 +56,18 @@ async function getMintInfo(
     };
 }
 
+export async function getATA(mint: PublicKey, owner: PublicKey): Promise<PublicKey> {
+    const [ata] = await PublicKey.findProgramAddress(
+        [
+            owner.toBuffer(),
+            new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA").toBuffer(),
+            mint.toBuffer()
+        ],
+        new PublicKey("ATokenGPvbdGVxr1gPi9rnMbyzCkS5uYz9v9K3NGE8g2")
+    );
+    return ata;
+}
+
 // --- Honeypot/tax simulation
 async function simulateSwapTaxes(
     tokenMint: PublicKey,
@@ -65,7 +79,7 @@ async function simulateSwapTaxes(
     const jupiter = await getSharedJupiter(walletPubkey);
     const amountInSol = 0.1;
     const lamportsCount = Math.floor(amountInSol * LAMPORTS_PER_SOL);
-    const amount = (JSBI as any).BigInt(lamportsCount);
+    const amount = JSBI.BigInt(lamportsCount);
 
     const buyRoute = await jupiter.computeRoutes({
         inputMint: NATIVE_MINT,
@@ -83,7 +97,7 @@ async function simulateSwapTaxes(
         const sellRoute = await jupiter.computeRoutes({
             inputMint: tokenMint,
             outputMint: NATIVE_MINT,
-            amount: buyOut ? (JSBI as any).BigInt(buyOut) : amount,
+            amount: buyOut ? JSBI.BigInt(buyOut) : amount,
             slippageBps: 50,
         });
         const sellOut = sellRoute.routesInfos?.[0]?.outAmount
@@ -136,17 +150,33 @@ export async function checkTokenSafety(
             const { supply, decimals, mintAuthority, freezeAuthority } = await getMintInfo(connection, mintPk);
             const totalSupply = Number(supply) / Math.pow(10, decimals);
 
-            const largest = await connection.getTokenLargestAccounts(mintPk);
-            const top = largest.value[0];
-            const topAmt = top.uiAmount ?? 0;
-            const topPct = totalSupply > 0 ? topAmt / totalSupply : 0;
-            if (topPct >= 0.1) {
-                await addToBlacklist(token.creator);
-                return { passed: false, reason: `Creator holds ${(topPct * 100).toFixed(1)}%` };
-            }
-            if (mintAuthority || freezeAuthority) {
-                await addToBlacklist(token.creator);
-                return { passed: false, reason: "Mint or freeze authority exists" };
+            try {
+                const mintPk = new PublicKey(token.mint);
+                const { supply, mintAuthority, freezeAuthority } = await getMintInfo(connection, mintPk);
+                const totalSupply = Number(supply) / 1e9;
+
+                // ✅ Directly check how much the CREATOR holds
+                const creatorPk = new PublicKey(token.creator);
+                const creatorAta = await getATA(mintPk, creatorPk);
+                const tokenAccount = await connection.getTokenAccountBalance(creatorAta).catch(() => null);
+                const creatorBalance = tokenAccount?.value?.uiAmount ?? 0;
+                const creatorPct = totalSupply > 0 ? creatorBalance / totalSupply : 0;
+
+                if (creatorPct >= 0.5) {
+                    await addToBlacklist(token.creator);
+                    return {
+                        passed: false,
+                        reason: `Creator holds ${(creatorPct * 100).toFixed(1)}%`,
+                    };
+                }
+
+                if (mintAuthority || freezeAuthority) {
+                    await addToBlacklist(token.creator);
+                    return { passed: false, reason: "Mint or freeze authority exists" };
+                }
+            } catch (err) {
+                console.warn(`⚠️ Distribution check failed for ${token.mint}:`, err);
+                return { passed: false, reason: "On-chain distribution check error" };
             }
         } catch (err) {
             console.warn(`⚠️ Distribution check failed for ${token.mint}:`, err);

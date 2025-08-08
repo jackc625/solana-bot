@@ -2,7 +2,7 @@
 
 import { Jupiter, RouteInfo } from "@jup-ag/core";
 import { PublicKey, VersionedTransaction, Keypair } from "@solana/web3.js";
-import * as JSBI from "jsbi";
+import JSBIImport from "jsbi";
 import { connection } from "./solana.js";
 import { loadBotConfig } from "../config/index.js";
 import PQueueModule from "p-queue";
@@ -11,6 +11,8 @@ import { shouldCooldown, triggerCooldown } from "./globalCooldown.js";
 const PQueue = (PQueueModule as any).default ?? PQueueModule;
 const SOL_MINT = new PublicKey("So11111111111111111111111111111111111111112");
 const config = loadBotConfig();
+
+const JSBI: any = JSBIImport;
 
 const jupiterCache = new Map<string, Jupiter>();
 
@@ -89,7 +91,7 @@ export async function computeSwap(
             const rawResult = await jupiter.computeRoutes({
                 inputMint: SOL_MINT,
                 outputMint: new PublicKey(outputMint),
-                amount: (JSBI as any).BigInt(Math.floor(amount * 1e9)),
+                amount: JSBI.BigInt(Math.floor(amount * 1e9)),
                 slippageBps: config.slippage * 100,
             });
 
@@ -153,7 +155,7 @@ export async function getLpLiquidity(
             const routes = await jupiter.computeRoutes({
                 inputMint: new PublicKey(inputMint),
                 outputMint: new PublicKey(outputMint),
-                amount: (JSBI as any).BigInt(Math.floor(amountInSol * 1e9)),
+                amount: JSBI.BigInt(Math.floor(amountInSol * 1e9)),
                 slippageBps: 50,
             });
 
@@ -206,7 +208,7 @@ export async function simulateSell({
             const route = await jupiter.computeRoutes({
                 inputMint: new PublicKey(tokenMint),
                 outputMint: SOL_MINT,
-                amount: (JSBI as any).BigInt(Math.floor(tokenAmount * 1e9)),
+                amount: JSBI.BigInt(Math.floor(tokenAmount * 1e9)),
                 slippageBps: config.slippage * 100,
             });
 

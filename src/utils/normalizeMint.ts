@@ -18,7 +18,6 @@ export function normalizeMint(raw: string, pool: string): string | null {
         const pk = new PublicKey(cleaned);
         return pk.toBase58();
     } catch {
-        console.warn(`❌ Invalid mint after cleaning: "${raw}" → "${cleaned}"`);
         return null;
     }
 }
