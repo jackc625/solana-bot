@@ -21,6 +21,16 @@ export interface BotConfig {
     fallbackMs?: number; // calculated after load
     honeypotSellTaxThreshold?: number;
     maxTaxPercent: number;
+    honeypotCheck?: boolean;
+    enhancedHoneypotDetection?: boolean;
+    honeypotTestAmounts?: number[];
+    
+    // LP lock verification settings
+    lpLockCheck?: boolean;
+    lpLockMinPercentage?: number;
+    lpLockMinDurationHours?: number;
+    acceptBurnedLp?: boolean;
+    acceptVestingLock?: boolean;
     minHoldMs: number;
     maxHoldMs: number;
     checkIntervalMs: number;
@@ -28,6 +38,27 @@ export interface BotConfig {
     stopLossRoi: number;
     priorityFee?: number;
     pool?: string;
+    // Auto-sell manager specific fields
+    takeProfitRoi?: number;
+    dropFromPeakRoi?: number;
+    postSellCooldownMs?: number;
+    autoSellPollMs?: number;
+    scaleOut?: Array<{roi: number; fraction: number}>;
+    trailing?: Array<{threshold: number; drop: number}>;
+    
+    // Position size and risk management
+    maxPositionSize?: number;        // Maximum SOL per position
+    maxPositionsCount?: number;      // Maximum concurrent positions
+    maxPortfolioPercent?: number;    // Maximum % of wallet balance to use
+    maxWalletExposure?: number;      // Maximum total SOL exposure
+    dailyLossLimit?: number;         // Maximum daily loss in SOL
+    maxLossPercent?: number;         // Maximum % loss of wallet balance
+    
+    // Social verification settings
+    socialVerificationCheck?: boolean;  // Enable social verification
+    minSocialScore?: number;            // Minimum social score (0-10)
+    requireSocialPresence?: boolean;    // Require social media presence
+    blockBlacklistedTokens?: boolean;   // Block tokens on blacklist
 }
 
 export const loadBotConfig = (): BotConfig => {
@@ -57,6 +88,16 @@ export const loadBotConfig = (): BotConfig => {
             autoSellDelaySeconds: json.autoSellDelaySeconds ?? 90,
             honeypotSellTaxThreshold: json.honeypotSellTaxThreshold ?? 95,
             maxTaxPercent: json.maxTaxPercent ?? 10,
+            honeypotCheck: json.honeypotCheck ?? true,
+            enhancedHoneypotDetection: json.enhancedHoneypotDetection ?? true,
+            honeypotTestAmounts: Array.isArray(json.honeypotTestAmounts) ? json.honeypotTestAmounts : [0.001, 0.01, 0.1],
+            
+            // LP lock verification settings
+            lpLockCheck: json.lpLockCheck ?? true,
+            lpLockMinPercentage: json.lpLockMinPercentage ?? 80,
+            lpLockMinDurationHours: json.lpLockMinDurationHours ?? 24,
+            acceptBurnedLp: json.acceptBurnedLp ?? true,
+            acceptVestingLock: json.acceptVestingLock ?? true,
             minHoldMs: json.minHoldMs ?? 45000,
             maxHoldMs: json.maxHoldMs ?? 120000,
             checkIntervalMs: json.checkIntervalMs ?? 5000,
@@ -64,6 +105,19 @@ export const loadBotConfig = (): BotConfig => {
             stopLossRoi: json.stopLossRoi ?? -0.25,
             priorityFee: json.priorityFee ?? 0.00001,
             pool: json.pool ?? "auto",
+            // Auto-sell manager fields with proper fallbacks
+            takeProfitRoi: json.takeProfitRoi ?? json.targetRoi ?? 0.2,
+            dropFromPeakRoi: json.dropFromPeakRoi ?? json.slDropFromPeak ?? 0.25,
+            postSellCooldownMs: json.postSellCooldownMs ?? 1500,
+            autoSellPollMs: json.autoSellPollMs ?? 2000,
+            scaleOut: Array.isArray(json.scaleOut) ? json.scaleOut : [],
+            trailing: Array.isArray(json.trailing) ? json.trailing : [],
+            
+            // Social verification settings
+            socialVerificationCheck: json.socialVerificationCheck ?? true,
+            minSocialScore: json.minSocialScore ?? 2,
+            requireSocialPresence: json.requireSocialPresence ?? false,
+            blockBlacklistedTokens: json.blockBlacklistedTokens ?? true,
         };
 
         config.fallbackMs = config.fallbackMinutes * 60 * 1000;

@@ -1,8 +1,12 @@
 node_modules/
 dist/
 .env
-backup-7-22-25.zip
-encode.js
-getSlot.js
-solana.zip
-solana-devnet.json
+*.log
+*.zip
+*.json
+
+# Claude Code related files
+CLAUDE.md
+PRD.md
+TASKMANAGER.md
+DEPLOYMENT.md

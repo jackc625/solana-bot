@@ -4,9 +4,10 @@ export interface PumpToken {
     rawData?: any;
     mint: string;
     pool: string;
-    signature: string;
+    signature?: string;
     creator: string;
-    launchedAt: number;
+    timestamp?: number;      // Alternative to launchedAt
+    launchedAt?: number;
     simulatedLp: number;
     hasJupiterRoute: boolean;
     lpTokenAddress: string;
@@ -14,6 +15,9 @@ export interface PumpToken {
         name: string;
         symbol: string;
         decimals: number;
+        description?: string;  // Token description for social verification
+        uri?: string;          // Metadata URI for additional token info
+        image?: string;        // Token image URL
     };
     earlyHolders: number;
     launchSpeedSeconds: number;

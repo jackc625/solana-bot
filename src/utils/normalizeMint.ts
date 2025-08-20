@@ -2,20 +2,24 @@
 import { PublicKey } from "@solana/web3.js";
 
 /**
- * If raw ends with the pool name, strip that suffix;
- * then try to turn it into a PublicKey. If valid, return
- * its canonical Base58 string.
+ * Safer normalization: only strip pool suffixes when a clear delimiter is present.
+ * For curve pools you should skip calling this function entirely.
  */
 export function normalizeMint(raw: string, pool: string): string | null {
-    let cleaned = raw.trim();
+    const cleaned = (raw || "").trim();
+    if (!cleaned) return null;
 
-    if (cleaned.toLowerCase().endsWith(pool.toLowerCase())) {
-        cleaned = cleaned.slice(0, cleaned.length - pool.length);
-    }
+    const trySplit = (sep: string) => {
+        if (!cleaned.includes(sep)) return null;
+        const [mint, suffix] = cleaned.split(sep, 2);
+        if (suffix === pool) return mint;
+        return null;
+    };
+
+    const candidate = trySplit("|") ?? trySplit(":") ?? cleaned;
 
     try {
-        // will throw if cleaned isn’t exactly 32 bytes after Base58-decoding
-        const pk = new PublicKey(cleaned);
+        const pk = new PublicKey(candidate);
         return pk.toBase58();
     } catch {
         return null;

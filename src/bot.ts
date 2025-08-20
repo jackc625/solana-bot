@@ -21,6 +21,13 @@ import { sendTelegramMessage, startTelegramBot } from "./utils/telegram.js";
 import { normalizeMint } from "./utils/normalizeMint.js";
 import {monitorPumpPortal} from "./utils/pumpPortalSocket.js";
 import { PumpToken } from "./types/PumpToken.js";
+import { 
+    validateEnvironment, 
+    validateRpcConnection, 
+    validateTelegramConfig, 
+    printValidationResults 
+} from "./utils/validateEnvironment.js";
+import logger from "./utils/logger.js";
 
 
 let lastSnipeTime = 0;
@@ -38,6 +45,45 @@ async function main() {
     process.on("unhandledRejection", (reason, promise) => {
         console.error("Unhandled Rejection:", reason);
     });
+
+    // Environment validation - fail fast if misconfigured
+    console.log("🔍 Validating environment...");
+    const envValidation = validateEnvironment();
+    printValidationResults(envValidation);
+
+    if (!envValidation.valid) {
+        console.error("💥 Environment validation failed. Please fix the above errors before starting the bot.");
+        process.exit(1);
+    }
+
+    // Test RPC connection
+    console.log("🌐 Testing RPC connection...");
+    const rpcTest = await validateRpcConnection(); // Auto-detects RPC URL from environment
+    if (!rpcTest.valid) {
+        console.error(`❌ RPC connection failed: ${rpcTest.error}`);
+        console.error("💥 Cannot continue without a working RPC connection.");
+        process.exit(1);
+    }
+    console.log(`✅ RPC connection successful (latency: ${rpcTest.latency}ms)`);
+    
+    // Show which RPC configuration is being used
+    const useMainnet = process.env.USE_MAINNET === 'true';
+    const rpcInUse = useMainnet 
+        ? (process.env.RPC_HTTP_MAINNET || process.env.RPC_URL)
+        : (process.env.RPC_HTTP_DEVNET || process.env.RPC_URL);
+    console.log(`🔌 Using ${useMainnet ? 'MAINNET' : 'DEVNET'} RPC:`, rpcInUse?.substring(0, 50) + '...');
+
+    // Test Telegram configuration if provided
+    if (process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHAT_ID) {
+        console.log("📱 Testing Telegram configuration...");
+        const telegramTest = await validateTelegramConfig(process.env.TELEGRAM_BOT_TOKEN, process.env.TELEGRAM_CHAT_ID);
+        if (!telegramTest.valid) {
+            console.warn(`⚠️  Telegram validation failed: ${telegramTest.error}`);
+            console.warn("📱 Continuing without Telegram notifications.");
+        } else {
+            console.log("✅ Telegram configuration valid");
+        }
+    }
 
     const config = loadBotConfig();
     const wallet = loadWallet();
@@ -84,19 +130,34 @@ async function handleValidatedToken(token: PumpToken) {
     if (!wallet) return;
 
     try {
-        console.log("🧪 New token detected from pump.fun (validated):", token.mint);
+        logger.info('BOT', 'Processing validated token', { 
+            mint: token.mint.substring(0, 8) + '...', 
+            pool: token.pool 
+        });
 
         const result = await checkTokenSafety(token, config, connection, wallet.publicKey);
         if (!result.passed) {
-            console.log(`⛔ Skipping ${token.mint}: ${result.reason}`);
+            logger.info('BOT', 'Token failed safety checks', { 
+                mint: token.mint.substring(0, 8) + '...', 
+                reason: result.reason 
+            });
             return;
         }
 
         const { score, details } = await scoreToken(token);
-        console.log(`📊 Token scored ${score}/7:`, details);
+        logger.info('BOT', 'Token scored', { 
+            mint: token.mint.substring(0, 8) + '...', 
+            score, 
+            threshold: config.scoreThreshold, 
+            details 
+        });
 
         if (score < config.scoreThreshold) {
-            console.log(`⚠️ Score too low — skipping ${token.mint}`);
+            logger.info('BOT', 'Score below threshold - skipping', { 
+                mint: token.mint.substring(0, 8) + '...', 
+                score, 
+                threshold: config.scoreThreshold 
+            });
             return;
         }
 
@@ -179,8 +240,14 @@ async function handleValidatedToken(token: PumpToken) {
             console.error(`❌ Failed to track buy for ${token.mint}:`, err);
         }
     } catch (err: any) {
-        console.error("💥 Error in validated token handler:", err);
-        console.error("🔍 Details:", JSON.stringify(err, null, 2));
+        logger.error('BOT', 'Critical error in token validation handler', {
+            mint: token.mint?.substring(0, 8) + '...' || 'unknown',
+            pool: token.pool
+        }, err);
+        
+        // If we're getting repeated errors, we might want to implement
+        // circuit breaker logic here in the future
+        logger.recordFailure('TOKEN_HANDLER');
     }
 }
 
@@ -211,7 +278,39 @@ async function trySnipeToken(
     await snipeToken(connection, wallet, mint, amount, dryRun);
 }
 
-main().catch((err) => {
-    console.error("❌ Bot crashed with error:", err);
-    console.error("🔍 Details:", JSON.stringify(err, null, 2));
-});
+async function runWithRestart() {
+    let restartCount = 0;
+    const maxRestarts = 5;
+    
+    while (restartCount < maxRestarts) {
+        try {
+            await main();
+            break; // If main() completes without error, exit the loop
+        } catch (err: any) {
+            restartCount++;
+            console.error(`❌ Bot crashed with error (attempt ${restartCount}/${maxRestarts}):`, err);
+            console.error("🔍 Details:", JSON.stringify(err, null, 2));
+            
+            // Log the restart attempt
+            logger.error('BOT_RESTART', `Bot crashed and restarting (${restartCount}/${maxRestarts})`, {
+                restartCount,
+                maxRestarts
+            }, err);
+            
+            if (restartCount < maxRestarts) {
+                const delay = Math.min(5000 * restartCount, 30000); // Exponential backoff, max 30s
+                console.log(`🔄 Restarting in ${delay/1000}s...`);
+                await new Promise(resolve => setTimeout(resolve, delay));
+            } else {
+                console.error("💥 Max restart attempts reached. Bot shutting down.");
+                logger.error('BOT_SHUTDOWN', 'Max restart attempts reached - bot shutting down', {
+                    restartCount,
+                    maxRestarts
+                });
+                process.exit(1);
+            }
+        }
+    }
+}
+
+runWithRestart();
