@@ -3,6 +3,32 @@
   "minLiquidity": 5,
   "maxLiquidity": 100,
   "scoreThreshold": 4,
+  
+  "rpcEndpoints": [
+    {
+      "url": "https://api.mainnet-beta.solana.com",
+      "name": "Official Solana RPC",
+      "priority": 3,
+      "maxRetries": 2,
+      "timeoutMs": 5000
+    },
+    {
+      "url": "https://solana-mainnet.g.alchemy.com/v2/your-api-key",
+      "name": "Alchemy",
+      "priority": 1,
+      "maxRetries": 3,
+      "timeoutMs": 3000
+    },
+    {
+      "url": "https://rpc.ankr.com/solana",
+      "name": "Ankr",
+      "priority": 2,
+      "maxRetries": 2,
+      "timeoutMs": 4000
+    }
+  ],
+  "rpcHealthCheckIntervalMs": 30000,
+  "rpcFailoverThreshold": 3,
   "buyAmounts": {
     "4": 0.001,
     "5": 0.002,
@@ -52,5 +78,11 @@
   "socialVerificationCheck": true,
   "minSocialScore": 2,
   "requireSocialPresence": false,
-  "blockBlacklistedTokens": true
+  "blockBlacklistedTokens": true,
+  
+  "maxDeployerExposure": 0.05,
+  "maxTokenConcentration": 0.2,
+  "maxDeployerTokens": 2,
+  "deployerCooldownMs": 180000,
+  "concentrationThreshold": 0.15
 }

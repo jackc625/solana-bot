@@ -1,0 +1,76 @@
+# monitoring/alerts.yml
+# Alert rules for Solana trading bot monitoring
+
+groups:
+  - name: solana_bot_alerts
+    rules:
+      # Trading operation failures
+      - alert: HighTradeFailureRate
+        expr: |
+          (
+            rate(solana_bot_trading_operations_total{outcome="failure"}[5m]) /
+            rate(solana_bot_trading_operations_total[5m])
+          ) > 0.2
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High trade failure rate detected"
+          description: "Trade failure rate is {{ $value | humanizePercentage }} over the last 5 minutes"
+
+      # System health alerts
+      - alert: BotDown
+        expr: up{job="solana-trading-bot"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Solana trading bot is down"
+          description: "The trading bot has been unreachable for more than 1 minute"
+
+      # RPC health alerts
+      - alert: RpcUnhealthy
+        expr: solana_bot_rpc_health_status < 1
+        for: 30s
+        labels:
+          severity: warning
+        annotations:
+          summary: "RPC endpoint unhealthy"
+          description: "RPC endpoint {{ $labels.endpoint }} is unhealthy"
+
+      # Memory usage alerts
+      - alert: HighMemoryUsage
+        expr: |
+          (
+            nodejs_heap_size_used_bytes{job="solana-trading-bot"} /
+            nodejs_heap_size_total_bytes{job="solana-trading-bot"}
+          ) > 0.9
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High memory usage"
+          description: "Memory usage is {{ $value | humanizePercentage }}"
+
+      # Trading performance alerts
+      - alert: SlowTradeExecution
+        expr: |
+          histogram_quantile(0.95,
+            rate(solana_bot_trading_operation_duration_seconds_bucket{operation="buy"}[5m])
+          ) > 10
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Slow trade execution detected"
+          description: "95th percentile trade execution time is {{ $value }}s"
+
+      # Portfolio alerts
+      - alert: NoActivePositions
+        expr: solana_bot_active_positions == 0
+        for: 10m
+        labels:
+          severity: info
+        annotations:
+          summary: "No active positions"
+          description: "Bot has no active positions for 10 minutes"

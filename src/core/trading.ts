@@ -5,7 +5,8 @@ import { Keypair, PublicKey, Connection } from "@solana/web3.js";
 import { computeSwap } from "../utils/jupiter.js";
 import { sendPumpTrade } from "../utils/pumpTrade.js";
 import { shouldCooldown } from "../utils/globalCooldown.js";
-import { connection as sharedConnection, loadWallet } from "../utils/solana.js";
+import { connection as sharedConnection, loadWallet, getConnection } from "../utils/solana.js";
+import rpcManager from "../utils/rpcManager.js";
 import { begin, end } from "../state/inflight.js";
 import riskManager from "./riskManager.js";
 import logger from "../utils/logger.js";
@@ -13,6 +14,8 @@ import { loadBotConfig } from "../config/index.js";
 import emergencyCircuitBreaker from "./emergencyCircuitBreaker.js";
 import networkHealthMonitor from "../utils/networkHealth.js";
 import liquidityAnalyzer, { LiquidityDepthAnalysis, PriceImpactCalculation } from "../utils/liquidityAnalysis.js";
+import portfolioRiskManager from "./portfolioRiskManager.js";
+import metricsCollector from "../utils/metricsCollector.js";
 
 /**
  * Enhanced price and liquidity assessment with proper depth analysis.
@@ -148,14 +151,16 @@ export async function getCurrentPriceViaJupiter(
 /**
  * Flexible snipe function used by bot.ts.
  * Supports:
- *  - snipeToken({ connection, wallet, mint, amountSOL, pool?, slippage?, priorityFee? })
+ *  - snipeToken({ connection, wallet, mint, amountSOL, pool?, slippage?, priorityFee?, deployer? })
  *  - snipeToken(mint: string, amountSOL: number)
  */
 export async function snipeToken(...args: any[]): Promise<void> {
+    const operationStartTime = Date.now();
     let conn: Connection | null | undefined;
     let wallet: Keypair | null | undefined;
     let mint: string;
     let amountSOL: number;
+    let deployer: string | undefined;
     let opts: any = {};
 
     if (typeof args[0] === "object" && args[0] && "mint" in args[0]) {
@@ -164,10 +169,12 @@ export async function snipeToken(...args: any[]): Promise<void> {
         wallet = p.wallet ?? loadWallet();
         mint = p.mint;
         amountSOL = p.amountSOL ?? p.amount ?? p.size ?? 0;
+        deployer = p.deployer;
         opts = p;
     } else {
         mint = args[0];
         amountSOL = args[1];
+        deployer = args[2]; // Optional third parameter for deployer
         conn = sharedConnection;
         wallet = loadWallet();
     }
@@ -175,9 +182,16 @@ export async function snipeToken(...args: any[]): Promise<void> {
     if (!conn || !wallet) throw new Error("snipeToken: wallet/connection not available");
     if (!mint || !(amountSOL > 0)) throw new Error("snipeToken: invalid mint/amount");
 
-    // SAFETY-005: Critical balance validation
-    const balance = await conn.getBalance(wallet.publicKey);
-    const balanceSOL = balance / 1e9;
+    // SAFETY-005: Critical balance validation with RPC failover
+    const balanceSOL = await rpcManager.executeWithFailover(
+        async (connection: Connection) => {
+            const balance = await connection.getBalance(wallet.publicKey);
+            return balance / 1e9;
+        },
+        'getBalance',
+        3
+    );
+    
     const config = loadBotConfig();
     const minReserve = 0.01; // Minimum SOL reserve for gas fees
     
@@ -211,21 +225,28 @@ export async function snipeToken(...args: any[]): Promise<void> {
         // Don't halt trading but log the warning
     }
 
-    // SAFETY-005: Token decimals validation
+    // SAFETY-005: Token decimals validation with RPC failover
     try {
-        const mintPubkey = new PublicKey(mint);
-        const mintInfo = await conn.getParsedAccountInfo(mintPubkey);
-        if (!mintInfo.value || !mintInfo.value.data || typeof mintInfo.value.data !== 'object') {
-            throw new Error('Token mint account not found or invalid');
-        }
-        const parsedData = mintInfo.value.data as any;
-        if (!parsedData.parsed || typeof parsedData.parsed.info.decimals !== 'number') {
-            throw new Error('Token decimals information not available');
-        }
-        const decimals = parsedData.parsed.info.decimals;
-        if (decimals < 0 || decimals > 18) {
-            throw new Error(`Invalid token decimals: ${decimals}`);
-        }
+        await rpcManager.executeWithFailover(
+            async (connection: Connection) => {
+                const mintPubkey = new PublicKey(mint);
+                const mintInfo = await connection.getParsedAccountInfo(mintPubkey);
+                if (!mintInfo.value || !mintInfo.value.data || typeof mintInfo.value.data !== 'object') {
+                    throw new Error('Token mint account not found or invalid');
+                }
+                const parsedData = mintInfo.value.data as any;
+                if (!parsedData.parsed || typeof parsedData.parsed.info.decimals !== 'number') {
+                    throw new Error('Token decimals information not available');
+                }
+                const decimals = parsedData.parsed.info.decimals;
+                if (decimals < 0 || decimals > 18) {
+                    throw new Error(`Invalid token decimals: ${decimals}`);
+                }
+                return decimals;
+            },
+            'validateTokenDecimals',
+            2
+        );
     } catch (error) {
         logger.error('TRADING', '❌ Token validation failed', {
             mint: mint.substring(0, 8) + '...',
@@ -268,6 +289,29 @@ export async function snipeToken(...args: any[]): Promise<void> {
             reason: riskCheck.reason,
             maxAllowed: riskCheck.maxAllowedAmount,
             portfolioState: riskManager.getRiskSummary()
+        });
+        return;
+    }
+
+    // Portfolio-level risk management check
+    const portfolioRiskCheck = await portfolioRiskManager.checkPortfolioRisk({
+        mint,
+        deployer,
+        requestedAmount: amountSOL,
+        connection: conn,
+        walletPubkey: wallet.publicKey
+    });
+
+    if (!portfolioRiskCheck.allowed) {
+        logger.warn('TRADING', '⚠️ Trade rejected by portfolio risk management', {
+            mint: mint.substring(0, 8) + '...',
+            deployer: deployer?.substring(0, 8) + '...' || 'unknown',
+            requestedAmount: amountSOL,
+            reason: portfolioRiskCheck.reason,
+            maxAllowed: portfolioRiskCheck.maxAllowedAmount,
+            currentExposure: portfolioRiskCheck.currentDeployerExposure,
+            tokenCount: portfolioRiskCheck.deployerTokenCount,
+            cooldown: portfolioRiskCheck.cooldownRemaining ? `${Math.round(portfolioRiskCheck.cooldownRemaining / 1000)}s` : 'none'
         });
         return;
     }
@@ -338,25 +382,47 @@ export async function snipeToken(...args: any[]): Promise<void> {
             // SAFETY-005: Record successful transaction for circuit breaker
             emergencyCircuitBreaker.recordTransaction();
             
+            // Record position for portfolio risk management
+            portfolioRiskManager.recordPosition(mint, deployer, amountSOL);
+            
+            // Record metrics
+            const operationDuration = Date.now() - operationStartTime;
+            metricsCollector.recordTradingOperation('buy', 'success', operationDuration);
+            metricsCollector.recordTrade('buy', amountSOL, 'success');
+            
             logger.info('TRADING', 'BUY order successful', {
                 mint: mint.substring(0, 8) + '...',
+                deployer: deployer?.substring(0, 8) + '...' || 'unknown',
                 amount: amountSOL,
-                signature: signature.substring(0, 8) + '...'
+                signature: signature.substring(0, 8) + '...',
+                duration: operationDuration
             });
             logger.recordSuccess('TRADING_BUY');
         } else {
+            // Record failed trade metrics
+            const operationDuration = Date.now() - operationStartTime;
+            metricsCollector.recordTradingOperation('buy', 'failure', operationDuration);
+            metricsCollector.recordTrade('buy', amountSOL, 'failure');
+            
             logger.warn('TRADING', 'BUY order returned no signature', {
                 mint: mint.substring(0, 8) + '...',
-                amount: amountSOL
+                amount: amountSOL,
+                duration: operationDuration
             });
             logger.recordFailure('TRADING_BUY');
         }
     } catch (error) {
+        // Record error metrics
+        const operationDuration = Date.now() - operationStartTime;
+        metricsCollector.recordTradingOperation('buy', 'error', operationDuration);
+        metricsCollector.recordTrade('buy', amountSOL, 'error');
+        
         logger.error('TRADING', 'BUY order failed', {
             mint: mint.substring(0, 8) + '...',
             amount: amountSOL,
             slippage: opts.slippage,
-            pool: opts.pool
+            pool: opts.pool,
+            duration: operationDuration
         }, error);
         logger.recordFailure('TRADING_BUY');
         throw error; // Re-throw to maintain existing error handling behavior
@@ -369,14 +435,15 @@ export async function snipeToken(...args: any[]): Promise<void> {
 /**
  * Flexible sell function used by auto-sell manager and elsewhere.
  * Supports:
- *  - sellToken({ connection, wallet, mint, amountTokens })
- *  - sellToken(mint: string, amountTokens: number)
+ *  - sellToken({ connection, wallet, mint, amountTokens, deployer? })
+ *  - sellToken(mint: string, amountTokens: number, deployer?: string)
  */
 export async function sellToken(...args: any[]): Promise<void> {
     let conn: Connection | null | undefined;
     let wallet: Keypair | null | undefined;
     let mint: string;
     let amountTokens: number;
+    let deployer: string | undefined;
 
     if (typeof args[0] === "object" && args[0] && "mint" in args[0]) {
         const p = args[0];
@@ -384,9 +451,11 @@ export async function sellToken(...args: any[]): Promise<void> {
         wallet = p.wallet ?? loadWallet();
         mint = p.mint;
         amountTokens = p.amountTokens ?? p.amount ?? 0;
+        deployer = p.deployer;
     } else {
         mint = args[0];
         amountTokens = args[1];
+        deployer = args[2]; // Optional third parameter for deployer
         conn = sharedConnection;
         wallet = loadWallet();
     }
@@ -422,8 +491,12 @@ export async function sellToken(...args: any[]): Promise<void> {
             // SAFETY-005: Record successful transaction for circuit breaker
             emergencyCircuitBreaker.recordTransaction();
             
+            // Remove position from portfolio risk management
+            portfolioRiskManager.removePosition(mint, deployer);
+            
             logger.info('TRADING', 'SELL order successful', {
                 mint: mint.substring(0, 8) + '...',
+                deployer: deployer?.substring(0, 8) + '...' || 'unknown',
                 amount: amountTokens,
                 signature: signature.substring(0, 8) + '...'
             });

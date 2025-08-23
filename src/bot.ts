@@ -2,7 +2,8 @@
 
 import "./init/fetchPatch.js";
 import { loadBotConfig } from "./config/index.js";
-import { connection, loadWallet, getWalletAddress, RPC_URL } from "./utils/solana.js";
+import { connection, loadWallet, getWalletAddress, RPC_URL, getConnection } from "./utils/solana.js";
+import rpcManager from "./utils/rpcManager.js";
 import { checkTokenSafety } from "./core/safety.js";
 import { scoreToken } from "./core/scoring.js";
 import { snipeToken, getCurrentPriceViaJupiter } from "./core/trading.js";
@@ -10,8 +11,13 @@ import {
     trackBuy,
     configureAutoSell,
     runAutoSellLoop,
-    initAutoSellConfig
+    initAutoSellConfig,
+    restorePositionsFromPersistence
 } from "./sell/autoSellManager.js";
+import positionPersistence from "./utils/positionPersistence.js";
+import portfolioRiskManager from "./core/portfolioRiskManager.js";
+import metricsCollector from "./utils/metricsCollector.js";
+import { metricsServer } from "./utils/metricsServer.js";
 import { Connection, PublicKey, Keypair } from "@solana/web3.js";
 import { sleep } from "./utils/time.js";
 import { jupiterQueue } from "./utils/jupiter.js";
@@ -56,15 +62,29 @@ async function main() {
         process.exit(1);
     }
 
-    // Test RPC connection
-    console.log("🌐 Testing RPC connection...");
-    const rpcTest = await validateRpcConnection(); // Auto-detects RPC URL from environment
-    if (!rpcTest.valid) {
-        console.error(`❌ RPC connection failed: ${rpcTest.error}`);
-        console.error("💥 Cannot continue without a working RPC connection.");
-        process.exit(1);
+    // Initialize Multi-RPC Manager
+    console.log("🌐 Initializing RPC Manager...");
+    try {
+        await rpcManager.initialize();
+        console.log("✅ RPC Manager initialized successfully");
+        
+        // Show RPC health summary
+        const healthSummary = rpcManager.getHealthSummary() as any;
+        console.log(`📊 RPC Status: ${healthSummary.healthyEndpoints}/${healthSummary.totalEndpoints} healthy, using ${healthSummary.currentRpc}`);
+        
+    } catch (error) {
+        console.warn("⚠️  RPC Manager initialization failed, falling back to single RPC", (error as Error).message);
+        
+        // Fallback: Test single RPC connection
+        console.log("🌐 Testing fallback RPC connection...");
+        const rpcTest = await validateRpcConnection();
+        if (!rpcTest.valid) {
+            console.error(`❌ RPC connection failed: ${rpcTest.error}`);
+            console.error("💥 Cannot continue without a working RPC connection.");
+            process.exit(1);
+        }
+        console.log(`✅ Fallback RPC connection successful (latency: ${rpcTest.latency}ms)`);
     }
-    console.log(`✅ RPC connection successful (latency: ${rpcTest.latency}ms)`);
     
     // Show which RPC configuration is being used
     const useMainnet = process.env.USE_MAINNET === 'true';
@@ -97,17 +117,89 @@ async function main() {
     pendingTokens.clear();
 
     console.log("🚀 Bot started!");
-    console.log("🌐 RPC connected:", await connection.getVersion());
-    console.log("🔌 Using RPC:", RPC_URL);
+    
+    // Get RPC info from active connection
+    try {
+        const currentConnection = getConnection();
+        const version = await currentConnection.getVersion();
+        console.log("🌐 RPC connected:", version);
+        
+        const currentRpc = rpcManager.getCurrentRpcStatus();
+        if (currentRpc) {
+            console.log("🔌 Using RPC:", currentRpc.endpoint.url.substring(0, 50) + '...');
+            const internalConn = currentConnection as any;
+            const wsUrl = internalConn._rpcWebSocket?._url ?? "(WebSocket not connected)";
+            console.log("🔌 Using WebSocket:", wsUrl);
+        } else {
+            console.log("🔌 Using RPC:", RPC_URL);
+            const internalConn = connection as any;
+            const wsUrl = internalConn._rpcWebSocket?._url ?? "(WebSocket not connected)";
+            console.log("🔌 Using WebSocket:", wsUrl);
+        }
+    } catch (error) {
+        // Fallback to legacy connection info
+        console.log("🌐 RPC connected:", await connection.getVersion());
+        console.log("🔌 Using RPC:", RPC_URL);
+    }
 
-    const internalConn = connection as any;
-    const wsUrl = internalConn._rpcWebSocket?._url ?? "(WebSocket not connected)";
-    console.log("🔌 Using WebSocket:", wsUrl);
+    // Initialize position persistence system
+    console.log("💾 Initializing position persistence...");
+    try {
+        await positionPersistence.initialize();
+        console.log("✅ Position persistence initialized");
+        
+        // Reconcile positions with actual wallet state if wallet available
+        if (wallet) {
+            console.log("🔍 Reconciling positions with wallet state...");
+            const currentConnection = getConnection();
+            const reconciliation = await positionPersistence.reconcilePositions(currentConnection, wallet.publicKey);
+            
+            console.log(`📊 Position reconciliation: ${reconciliation.positionsRestored} restored, ${reconciliation.positionsRemoved} removed, ${reconciliation.exposureAdjustments} adjusted`);
+            
+            if (reconciliation.warnings.length > 0) {
+                console.log("⚠️ Reconciliation warnings:", reconciliation.warnings.slice(0, 3));
+            }
+            if (reconciliation.errors.length > 0) {
+                console.log("❌ Reconciliation errors:", reconciliation.errors.slice(0, 3));
+            }
+        }
+        
+        // Restore portfolio risk state
+        await portfolioRiskManager.restoreFromPersistence();
+        console.log("✅ Portfolio risk state restored");
+        
+    } catch (error) {
+        console.warn("⚠️ Position persistence initialization failed, continuing without persistence", (error as Error).message);
+    }
 
     await initAutoSellConfig();
     configureAutoSell(config.autoSellDelaySeconds ?? 90, config.dryRun);
+    
+    // Restore auto-sell positions
+    try {
+        await restorePositionsFromPersistence();
+        console.log("✅ Auto-sell positions restored");
+    } catch (error) {
+        console.warn("⚠️ Failed to restore auto-sell positions", (error as Error).message);
+    }
+    
     void runAutoSellLoop();
     console.log("✅ Auto-sell loop started");
+
+    // Initialize metrics collection and HTTP server
+    console.log("📊 Initializing metrics collection...");
+    try {
+        await metricsCollector.initialize();
+        console.log("✅ Metrics collector initialized");
+        
+        // Start metrics HTTP server
+        await metricsServer.start();
+        const serverStatus = metricsServer.getStatus();
+        console.log(`📈 Metrics server started on http://${serverStatus.config.host}:${serverStatus.config.port}${serverStatus.config.endpoint}`);
+        
+    } catch (error) {
+        console.warn("⚠️ Metrics initialization failed, continuing without metrics", (error as Error).message);
+    }
 
     // 🚨 Push into pending queue instead of processing instantly, with normalization
     await monitorPumpPortal((token) => {
@@ -135,16 +227,31 @@ async function handleValidatedToken(token: PumpToken) {
             pool: token.pool 
         });
 
+        // Record token validation start
+        const safetyCheckStart = Date.now();
+        metricsCollector.recordTokenValidation('safety_check', 'start');
+
         const result = await checkTokenSafety(token, config, connection, wallet.publicKey);
+        const safetyCheckDuration = Date.now() - safetyCheckStart;
+        
         if (!result.passed) {
             logger.info('BOT', 'Token failed safety checks', { 
                 mint: token.mint.substring(0, 8) + '...', 
                 reason: result.reason 
             });
+            metricsCollector.recordTokenValidation('safety_check', 'fail');
+            metricsCollector.recordTradingOperation('safety_check', 'failure', safetyCheckDuration, result.reason || 'unknown');
             return;
         }
+        
+        metricsCollector.recordTokenValidation('safety_check', 'pass');
+        metricsCollector.recordTradingOperation('safety_check', 'success', safetyCheckDuration);
 
+        // Record scoring phase
+        const scoringStart = Date.now();
         const { score, details } = await scoreToken(token);
+        const scoringDuration = Date.now() - scoringStart;
+        
         logger.info('BOT', 'Token scored', { 
             mint: token.mint.substring(0, 8) + '...', 
             score, 
@@ -152,14 +259,20 @@ async function handleValidatedToken(token: PumpToken) {
             details 
         });
 
+        metricsCollector.recordTradingOperation('scoring', 'success', scoringDuration);
+        metricsCollector.recordTokenScore(score, config.scoreThreshold);
+
         if (score < config.scoreThreshold) {
             logger.info('BOT', 'Score below threshold - skipping', { 
                 mint: token.mint.substring(0, 8) + '...', 
                 score, 
                 threshold: config.scoreThreshold 
             });
+            metricsCollector.recordTokenValidation('scoring', 'fail');
             return;
         }
+        
+        metricsCollector.recordTokenValidation('scoring', 'pass');
 
         const buyAmount = config.buyAmounts[String(score)] ?? 0.1;
 
@@ -186,6 +299,8 @@ async function handleValidatedToken(token: PumpToken) {
 
         let currentPrice: number | null = null;
         try {
+            // Record Jupiter quote phase
+            const quoteStart = Date.now();
 
             // Add a retry loop to allow liquidity to form
             let priceResult = null;
@@ -209,15 +324,15 @@ async function handleValidatedToken(token: PumpToken) {
                 }
             }
 
-            if (!priceResult) {
-                console.log(`❌ Failed to simulate price for ${token.mint} — skipping`);
-                return;
-            }
+            const quoteDuration = Date.now() - quoteStart;
 
             if (!priceResult) {
                 console.log(`❌ Failed to simulate price for ${token.mint} — skipping`);
+                metricsCollector.recordTradingOperation('quote', 'failure', quoteDuration, 'no_route');
                 return;
             }
+            
+            metricsCollector.recordTradingOperation('quote', 'success', quoteDuration);
             currentPrice = priceResult.price;
         } catch (err: any) {
             console.log(`⚠️ Skipping Jupiter quote for ${token.mint}: ${err.message || err}`);
@@ -225,7 +340,14 @@ async function handleValidatedToken(token: PumpToken) {
         }
 
         console.log(`🚀 Safety & score passed; sniping ${token.mint} for ${buyAmount} SOL`);
-        await trySnipeToken(connection, wallet, token.mint, buyAmount, config.dryRun);
+        
+        // Record trade execution
+        const tradeStart = Date.now();
+        await trySnipeToken(connection, wallet, token.mint, buyAmount, config.dryRun, token.creator);
+        const tradeDuration = Date.now() - tradeStart;
+        
+        // Note: Trade success/failure is recorded within snipeToken function
+        metricsCollector.recordTradingOperation('buy', 'success', tradeDuration);
 
         await sendTelegramMessage(
             `🎯 *Sniped token* \`${token.mint}\`\n` +
@@ -245,6 +367,10 @@ async function handleValidatedToken(token: PumpToken) {
             pool: token.pool
         }, err);
         
+        // Record token processing failure
+        metricsCollector.recordTokenValidation('processing', 'error');
+        metricsCollector.recordSystemEvent('error', 'token_validation_handler', err.message || 'unknown');
+        
         // If we're getting repeated errors, we might want to implement
         // circuit breaker logic here in the future
         logger.recordFailure('TOKEN_HANDLER');
@@ -256,7 +382,8 @@ async function trySnipeToken(
     wallet: Keypair,
     mint: string,
     amount: number,
-    dryRun: boolean
+    dryRun: boolean,
+    deployer?: string
 ) {
     const now = Date.now();
 
@@ -275,7 +402,7 @@ async function trySnipeToken(
         totalBuys++;
     }
 
-    await snipeToken(connection, wallet, mint, amount, dryRun);
+    await snipeToken({ connection, wallet, mint, amountSOL: amount, dryRun, deployer });
 }
 
 async function runWithRestart() {

@@ -4,6 +4,9 @@
 
 import { sellToken, getCurrentPriceViaJupiter } from "../core/trading.js";
 import { loadBotConfig } from "../config/index.js";
+import positionPersistence from "../utils/positionPersistence.js";
+import logger from "../utils/logger.js";
+import metricsCollector from "../utils/metricsCollector.js";
 
 type ScaleOutStep = { roi: number; fraction: number };
 type TrailingTier  = { threshold: number; drop: number };
@@ -50,6 +53,60 @@ const now = () => Date.now();
 const roi = (current: number, entry: number) => (current - entry) / entry;
 const tiny = (n: number) => n <= 0.000001;
 
+// Helper function to remove position from both in-memory and persistence
+function removePosition(mint: string, reason: string): void {
+    const pos = positions.get(mint);
+    if (pos) {
+        // Record position hold duration and exit reason
+        const holdDuration = now() - pos.openedAt;
+        metricsCollector.recordPositionHoldDuration(holdDuration, reason);
+        
+        // Record auto-sell trigger
+        const triggerType = reason.includes('take-profit') ? 'take_profit' :
+                           reason.includes('stop-loss') ? 'stop_loss' :
+                           reason.includes('trailing-stop') ? 'trailing_stop' :
+                           reason.includes('max-hold') ? 'max_hold' :
+                           reason.includes('depleted') ? 'scale_out' : 'scale_out';
+        metricsCollector.recordAutoSellTrigger(triggerType, 'executed');
+        
+        // Calculate P&L if possible
+        const currentRoi = pos.peakRoi;
+        if (currentRoi !== -Infinity) {
+            const pnlSOL = pos.entryPrice * pos.amountTokens * currentRoi;
+            metricsCollector.recordTrade('sell', pos.amountTokens, 'success', reason, pnlSOL, currentRoi * 100);
+        }
+    }
+    
+    positions.delete(mint);
+    positionPersistence.closePosition(mint).catch(error => {
+        logger.error('AUTO_SELL', 'Failed to close persisted position', {
+            mint: mint.substring(0, 8) + '...',
+            reason,
+            error: error.message
+        });
+    });
+    logger.info('AUTO_SELL', '📤 Position removed', {
+        mint: mint.substring(0, 8) + '...',
+        reason
+    });
+}
+
+// Helper function to update position in persistence
+function updatePositionPersistence(pos: Position): void {
+    positionPersistence.updatePosition(pos.mint, {
+        amountTokens: pos.amountTokens,
+        peakRoi: pos.peakRoi,
+        scaleOutIndex: pos.scaleIdx,
+        lastSellAt: pos.lastSellAt,
+        lastUpdateTime: now()
+    }).catch(error => {
+        logger.debug('AUTO_SELL', 'Failed to update persisted position', {
+            mint: pos.mint.substring(0, 8) + '...',
+            error: error.message
+        });
+    });
+}
+
 function dynamicDropFromPeak(peakRoi: number) {
     let d = rc.dropFromPeakRoi;
     for (const t of rc.trailing) {
@@ -80,7 +137,7 @@ function startWatcher(pos: Position) {
                 }
                 clearInterval(timer);
                 watchers.delete(key);
-                positions.delete(key);
+                removePosition(pos.mint, 'max-hold-time-reached');
                 return;
             }
 
@@ -103,6 +160,9 @@ function startWatcher(pos: Position) {
                         pos.lastSellAt = now();
                     }
                     pos.scaleIdx += 1;
+                    
+                    // Update persistence after scale-out
+                    updatePositionPersistence(pos);
                 }
             }
 
@@ -122,7 +182,14 @@ function startWatcher(pos: Position) {
                     pos.amountTokens = 0;
                     clearInterval(timer);
                     watchers.delete(key);
-                    positions.delete(key);
+                    
+                    // Determine exit reason
+                    let exitReason = 'unknown-exit';
+                    if (r >= rc.takeProfitRoi) exitReason = 'take-profit';
+                    else if (r <= rc.stopLossRoi) exitReason = 'stop-loss';
+                    else if (pos.peakRoi !== -Infinity && pos.peakRoi - r >= dynDrop) exitReason = 'trailing-stop';
+                    
+                    removePosition(pos.mint, exitReason);
                     return;
                 }
             }
@@ -131,8 +198,14 @@ function startWatcher(pos: Position) {
             if (tiny(pos.amountTokens)) {
                 clearInterval(timer);
                 watchers.delete(key);
-                positions.delete(key);
+                removePosition(pos.mint, 'position-depleted');
                 return;
+            }
+            
+            // Update peak ROI and persist changes periodically
+            if (r > pos.peakRoi) {
+                pos.peakRoi = r;
+                updatePositionPersistence(pos);
             }
         } catch { /* ignore tick errors */ }
     }, rc.autoSellPollMs);
@@ -207,6 +280,24 @@ export function trackBuy(a: any, b?: any, c?: any, _d?: any): void {
             scaleIdx: 0,
         };
         positions.set(mint, pos);
+        
+        // Save position to persistence
+        positionPersistence.savePosition({
+            mint,
+            entryPrice,
+            amountTokens,
+            exposureSOL: entryPrice * amountTokens,
+            acquisitionTime: pos.openedAt,
+            peakRoi: pos.peakRoi,
+            scaleOutIndex: pos.scaleIdx,
+            lastUpdateTime: pos.openedAt
+        }).catch(error => {
+            logger.error('AUTO_SELL', 'Failed to persist position', {
+                mint: mint.substring(0, 8) + '...',
+                error: error.message
+            });
+        });
+        
         startWatcher(pos);
         return;
     }
@@ -233,7 +324,71 @@ export function trackBuy(a: any, b?: any, c?: any, _d?: any): void {
         scaleIdx: 0,
     };
     positions.set(p.mint, pos);
+    
+    // Save position to persistence
+    positionPersistence.savePosition({
+        mint: p.mint,
+        entryPrice: p.entryPrice,
+        amountTokens: p.amountTokens,
+        exposureSOL: p.entryPrice * p.amountTokens,
+        acquisitionTime: pos.openedAt,
+        peakRoi: pos.peakRoi,
+        scaleOutIndex: pos.scaleIdx,
+        lastUpdateTime: pos.openedAt
+    }).catch(error => {
+        logger.error('AUTO_SELL', 'Failed to persist position', {
+            mint: p.mint.substring(0, 8) + '...',
+            error: error.message
+        });
+    });
+    
     startWatcher(pos);
+}
+
+/**
+ * Restore positions from persistence on startup
+ */
+export async function restorePositionsFromPersistence(): Promise<void> {
+    try {
+        const persistedPositions = positionPersistence.getActivePositions();
+        let restoredCount = 0;
+        
+        for (const persistedPos of persistedPositions) {
+            // Convert persisted position to runtime position
+            const runtimePos: Position = {
+                mint: persistedPos.mint,
+                entryPrice: persistedPos.entryPrice,
+                amountTokens: persistedPos.amountTokens,
+                openedAt: persistedPos.acquisitionTime,
+                peakRoi: persistedPos.peakRoi,
+                scaleIdx: persistedPos.scaleOutIndex,
+                lastSellAt: persistedPos.lastSellAt
+            };
+            
+            // Restore to in-memory tracking
+            positions.set(persistedPos.mint, runtimePos);
+            startWatcher(runtimePos);
+            restoredCount++;
+            
+            logger.info('AUTO_SELL', '🔄 Position restored from persistence', {
+                mint: persistedPos.mint.substring(0, 8) + '...',
+                entryPrice: persistedPos.entryPrice,
+                amountTokens: persistedPos.amountTokens,
+                peakRoi: persistedPos.peakRoi
+            });
+        }
+        
+        logger.info('AUTO_SELL', '✅ Position restoration completed', {
+            restoredCount,
+            totalWatchers: watchers.size
+        });
+        
+    } catch (error) {
+        logger.error('AUTO_SELL', 'Failed to restore positions from persistence', {
+            error: (error as Error).message
+        });
+        throw error;
+    }
 }
 
 /** Legacy loop starter — watchers are interval-based, so this is a no-op kept for API compatibility. */

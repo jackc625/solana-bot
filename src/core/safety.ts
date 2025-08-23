@@ -13,6 +13,7 @@ import { verifyTokenLpLock } from "../utils/lpLockVerification.js";
 import emergencyCircuitBreaker from "./emergencyCircuitBreaker.js";
 import liquidityAnalyzer from "../utils/liquidityAnalysis.js";
 import socialVerificationService from "../utils/socialVerification.js";
+import metricsCollector from "../utils/metricsCollector.js";
 
 const JSBI: any = JSBIImport;
 
@@ -85,11 +86,16 @@ export async function checkTokenSafety(
         // 1) Deduplicate
         if (evaluatedTokens.has(token.mint)) return { passed: true };
         evaluatedTokens.set(token.mint, Date.now());
+        
+        // Record safety check start
+        metricsCollector.recordTokenValidation('safety_check', 'pass');
 
         // 2) SAFETY-006: Enhanced liquidity validation with proper depth analysis
         if (!token.simulatedLp || token.simulatedLp < config.minLiquidity) {
+            metricsCollector.recordSafetyCheck('liquidity', 'fail');
             return { passed: false, reason: `Liquidity < ${config.minLiquidity} SOL` };
         }
+        metricsCollector.recordSafetyCheck('liquidity', 'pass');
         if (config.maxLiquidity && token.simulatedLp > config.maxLiquidity) {
             return { passed: false, reason: `Liquidity > ${config.maxLiquidity} SOL` };
         }

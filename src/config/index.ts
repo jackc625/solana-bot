@@ -7,11 +7,25 @@ import { fileURLToPath } from "url";
 
 dotenv.config();
 
+export interface RpcEndpoint {
+    url: string;
+    name: string;
+    priority: number;
+    maxRetries?: number;
+    timeoutMs?: number;
+    wsUrl?: string;
+}
+
 export interface BotConfig {
     dryRun: boolean;
     minLiquidity: number;
     maxLiquidity: number;
     scoreThreshold: number;
+    
+    // Multi-RPC configuration
+    rpcEndpoints?: RpcEndpoint[];
+    rpcHealthCheckIntervalMs?: number;
+    rpcFailoverThreshold?: number;
     buyAmounts: Record<string, number>;
     tpMultiplier: number;
     slDropFromPeak: number;
@@ -59,6 +73,13 @@ export interface BotConfig {
     minSocialScore?: number;            // Minimum social score (0-10)
     requireSocialPresence?: boolean;    // Require social media presence
     blockBlacklistedTokens?: boolean;   // Block tokens on blacklist
+    
+    // Portfolio-level risk controls
+    maxDeployerExposure?: number;       // Maximum SOL exposure per deployer
+    maxTokenConcentration?: number;     // Maximum % of portfolio per token
+    maxDeployerTokens?: number;         // Maximum tokens per deployer
+    deployerCooldownMs?: number;        // Cooldown between trades from same deployer
+    concentrationThreshold?: number;    // Warning threshold for concentration
 }
 
 export const loadBotConfig = (): BotConfig => {
@@ -118,6 +139,18 @@ export const loadBotConfig = (): BotConfig => {
             minSocialScore: json.minSocialScore ?? 2,
             requireSocialPresence: json.requireSocialPresence ?? false,
             blockBlacklistedTokens: json.blockBlacklistedTokens ?? true,
+            
+            // Portfolio-level risk controls
+            maxDeployerExposure: json.maxDeployerExposure ?? 0.1,  // 0.1 SOL max per deployer
+            maxTokenConcentration: json.maxTokenConcentration ?? 0.25, // 25% max per token
+            maxDeployerTokens: json.maxDeployerTokens ?? 3,         // Max 3 tokens per deployer
+            deployerCooldownMs: json.deployerCooldownMs ?? 300000,  // 5min cooldown per deployer
+            concentrationThreshold: json.concentrationThreshold ?? 0.15, // Warn at 15% concentration
+            
+            // Multi-RPC configuration
+            rpcEndpoints: Array.isArray(json.rpcEndpoints) ? json.rpcEndpoints : [],
+            rpcHealthCheckIntervalMs: json.rpcHealthCheckIntervalMs ?? 30000,
+            rpcFailoverThreshold: json.rpcFailoverThreshold ?? 3,
         };
 
         config.fallbackMs = config.fallbackMinutes * 60 * 1000;

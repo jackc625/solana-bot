@@ -7,6 +7,8 @@ import {
     ASSOCIATED_TOKEN_PROGRAM_ID,
     TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
+import rpcManager from "./rpcManager.js";
+import logger from "./logger.js";
 
 export const SOL_MINT = NATIVE_MINT;
 
@@ -30,10 +32,26 @@ if (!RPC_URL) {
     throw new Error("❌ RPC_URL is missing from environment variables.");
 }
 
+// Legacy connection for backward compatibility (will be replaced by RPC manager)
 export const connection = new Connection(RPC_URL!, {
     commitment: "confirmed",
     wsEndpoint: WS_URL!,
 });
+
+/**
+ * Get the current active connection from RPC manager
+ * Falls back to legacy connection if RPC manager not initialized
+ */
+export const getConnection = (): Connection => {
+    try {
+        return rpcManager.getConnection();
+    } catch (error) {
+        logger.warn('SOLANA', 'RPC manager not available, using legacy connection', {
+            error: (error as Error).message
+        });
+        return connection;
+    }
+};
 
 export const loadWallet = (): Keypair | null => {
     if (!PRIVATE_KEY) {
@@ -59,14 +77,22 @@ export async function getTokenBalance(
     mint: PublicKey,
     owner: PublicKey
 ): Promise<number> {
-    try {
-        const ata = await deriveAssociatedTokenAddress(owner, mint);
-        const { amount, decimals } = await getTokenAccountInfo(connection, ata);
-        return amount / Math.pow(10, decimals);
-    } catch (err) {
-        console.error("❌ getTokenBalance error:", err);
+    return await rpcManager.executeWithFailover(
+        async (connection: Connection) => {
+            const ata = await deriveAssociatedTokenAddress(owner, mint);
+            const { amount, decimals } = await getTokenAccountInfo(connection, ata);
+            return amount / Math.pow(10, decimals);
+        },
+        'getTokenBalance',
+        3
+    ).catch(err => {
+        logger.error('SOLANA', 'getTokenBalance failed after all retries', {
+            mint: mint.toBase58(),
+            owner: owner.toBase58(),
+            error: err.message
+        });
         return 0;
-    }
+    });
 }
 
 /**
