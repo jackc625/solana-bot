@@ -1,5 +1,5 @@
 {
-  "dryRun": true,
+  "dryRun": false,
   "minLiquidity": 5,
   "maxLiquidity": 100,
   "scoreThreshold": 4,
@@ -13,8 +13,8 @@
       "timeoutMs": 5000
     },
     {
-      "url": "https://solana-mainnet.g.alchemy.com/v2/your-api-key",
-      "name": "Alchemy",
+      "url": "https://compatible-crimson-sun.solana-mainnet.quiknode.pro/51f66c0dfd5baaf8ab48adcb9876f8d93be7e29c/",
+      "name": "QuickNode",
       "priority": 1,
       "maxRetries": 3,
       "timeoutMs": 3000

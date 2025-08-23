@@ -372,3 +372,5 @@
 {"timestamp":"2025-08-22T20:54:54.353Z","level":"ERROR","module":"PERSISTENCE","message":"Position reconciliation error","data":{"mint":"TEST_MINT_A12345","error":"Non-base58 character"}}
 {"timestamp":"2025-08-22T21:14:55.893Z","level":"ERROR","module":"PERSISTENCE","message":"Position reconciliation error","data":{"mint":"TEST_MINT_A12345","error":"Non-base58 character"}}
 {"timestamp":"2025-08-22T21:31:30.074Z","level":"ERROR","module":"PERSISTENCE","message":"Position reconciliation error","data":{"mint":"TEST_MINT_A12345","error":"Non-base58 character"}}
+{"timestamp":"2025-08-23T21:03:47.539Z","level":"ERROR","module":"PERSISTENCE","message":"Position reconciliation error","data":{"mint":"TEST_MINT_A12345","error":"Non-base58 character"}}
+{"timestamp":"2025-08-23T21:04:46.003Z","level":"ERROR","module":"PERSISTENCE","message":"Position reconciliation error","data":{"mint":"TEST_MINT_A12345","error":"Non-base58 character"}}
