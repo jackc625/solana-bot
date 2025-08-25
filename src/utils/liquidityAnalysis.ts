@@ -3,6 +3,7 @@
 
 import { PublicKey, Connection } from "@solana/web3.js";
 import { computeSwap, getSharedJupiter } from "./jupiter.js";
+import { computeSwapHttp } from "./jupiterHttp.js";
 import logger from "./logger.js";
 import emergencyCircuitBreaker from "../core/emergencyCircuitBreaker.js";
 import JSBIImport from "jsbi";
@@ -39,7 +40,7 @@ export interface PriceImpactCalculation {
 }
 
 class LiquidityAnalyzer {
-    private readonly PROBE_AMOUNTS = [0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0]; // SOL amounts to test
+    private readonly PROBE_AMOUNTS = [0.001, 0.01, 0.1]; // Reduced probe amounts to avoid rate limiting
     private readonly MAX_PRICE_IMPACT = 0.15; // 15% max price impact
     private readonly OPTIMAL_PRICE_IMPACT = 0.03; // 3% optimal price impact
 
@@ -58,52 +59,64 @@ class LiquidityAnalyzer {
                 maxTradeSize
             });
 
-            // Test multiple trade sizes to build liquidity curve
-            const liquidityCurve = await this.buildLiquidityCurve(mintAddress, userPubkey, maxTradeSize);
-            
-            if (liquidityCurve.length === 0) {
-                return this.createFailedAnalysis('No liquidity data available');
-            }
-
-            // Calculate market depth at different slippage levels
-            const marketDepth = this.calculateMarketDepth(liquidityCurve);
-            
-            // Analyze route information
-            const routeAnalysis = await this.analyzeRoutes(mintAddress, userPubkey);
-            
-            // Calculate actual liquidity (largest tradeable amount with reasonable slippage)
-            const actualLiquidity = this.calculateActualLiquidity(liquidityCurve);
-            
-            // Generate recommendations
-            const recommendation = this.generateRecommendations(liquidityCurve, actualLiquidity);
-
-            const analysis: LiquidityDepthAnalysis = {
-                actualLiquidity,
-                priceImpact: liquidityCurve[liquidityCurve.length - 1]?.priceImpact || 0,
-                slippageEstimate: liquidityCurve[liquidityCurve.length - 1]?.effectiveSlippage || 0,
-                marketDepth,
-                routeAnalysis,
-                recommendation
-            };
-
-            logger.info('LIQUIDITY', 'Liquidity analysis completed', {
-                mint: mintAddress.substring(0, 8) + '...',
-                actualLiquidity: actualLiquidity.toFixed(4),
-                maxSafeSize: recommendation.maxSafeSize.toFixed(4),
-                confidence: recommendation.confidence.toFixed(2)
+            // Add timeout to prevent hanging
+            const analysisPromise = this.performAnalysis(mintAddress, userPubkey, maxTradeSize);
+            const timeoutPromise = new Promise<LiquidityDepthAnalysis>((_, reject) => {
+                setTimeout(() => reject(new Error('Liquidity analysis timeout')), 10000); // 10 second timeout
             });
 
-            return analysis;
+            const result = await Promise.race([analysisPromise, timeoutPromise]);
+            
+            logger.info('LIQUIDITY', 'Liquidity analysis completed', {
+                mint: mintAddress.substring(0, 8) + '...',
+                actualLiquidity: result.actualLiquidity
+            });
+            
+            return result;
 
         } catch (error) {
-            logger.error('LIQUIDITY', 'Liquidity analysis failed', {
+            logger.warn('LIQUIDITY', 'Liquidity analysis failed', {
                 mint: mintAddress.substring(0, 8) + '...',
                 error: (error as Error).message
             });
-            
-            emergencyCircuitBreaker.recordNetworkAnomaly(`Liquidity analysis failed: ${(error as Error).message}`);
-            return this.createFailedAnalysis(`Analysis error: ${(error as Error).message}`);
+            return this.createFailedAnalysis(`Analysis failed: ${(error as Error).message}`);
         }
+    }
+
+    private async performAnalysis(
+        mintAddress: string,
+        userPubkey: PublicKey,
+        maxTradeSize: number
+    ): Promise<LiquidityDepthAnalysis> {
+        // Test multiple trade sizes to build liquidity curve
+        const liquidityCurve = await this.buildLiquidityCurve(mintAddress, userPubkey, maxTradeSize);
+        
+        if (liquidityCurve.length === 0) {
+            return this.createFailedAnalysis('No liquidity data available');
+        }
+
+        // Calculate market depth at different slippage levels
+        const marketDepth = this.calculateMarketDepth(liquidityCurve);
+        
+        // Analyze route information (skip for now due to Jupiter SDK issues)
+        const routeAnalysis = { primaryDex: "Unknown", routeCount: 1, fragmentationScore: 0 };
+        
+        // Calculate actual liquidity (largest tradeable amount with reasonable slippage)
+        const actualLiquidity = this.calculateActualLiquidity(liquidityCurve);
+        
+        // Generate recommendations
+        const recommendation = this.generateRecommendations(liquidityCurve, actualLiquidity);
+
+        const analysis: LiquidityDepthAnalysis = {
+            actualLiquidity,
+            priceImpact: liquidityCurve[liquidityCurve.length - 1]?.priceImpact || 0,
+            slippageEstimate: liquidityCurve[liquidityCurve.length - 1]?.effectiveSlippage || 0,
+            marketDepth,
+            routeAnalysis,
+            recommendation
+        };
+
+        return analysis;
     }
 
     /**
@@ -179,11 +192,22 @@ class LiquidityAnalyzer {
         const curve = [];
         let basePrice: number | null = null;
 
-        for (const probeAmount of this.PROBE_AMOUNTS) {
+        for (let i = 0; i < this.PROBE_AMOUNTS.length; i++) {
+            const probeAmount = this.PROBE_AMOUNTS[i];
             if (probeAmount > maxSize) continue;
 
             try {
-                const route = await computeSwap(mintAddress, probeAmount, userPubkey);
+                // Add delay between API calls to avoid rate limiting
+                if (i > 0) {
+                    await new Promise(resolve => setTimeout(resolve, 1000)); // 1 second between calls
+                }
+
+                logger.debug('LIQUIDITY', 'Testing liquidity probe', {
+                    mint: mintAddress.substring(0, 8) + '...',
+                    amount: probeAmount
+                });
+
+                const route = await computeSwapHttp(mintAddress, probeAmount, userPubkey);
                 if (!route || !route.outAmount) {
                     curve.push({
                         size: probeAmount,
@@ -194,7 +218,7 @@ class LiquidityAnalyzer {
                     continue;
                 }
 
-                const price = probeAmount / Number(route.outAmount.toString());
+                const price = probeAmount / Number(route.outAmount);
                 
                 // Establish base price with smallest successful trade
                 if (basePrice === null) {
@@ -204,7 +228,7 @@ class LiquidityAnalyzer {
                 const priceImpact = basePrice > 0 ? ((price - basePrice) / basePrice) * 100 : 0;
                 
                 // Calculate slippage from route price impact if available
-                const routePriceImpact = route.priceImpactPct || 0;
+                const routePriceImpact = Number(route.priceImpactPct || 0);
                 const effectiveSlippage = Math.max(Math.abs(priceImpact), Math.abs(routePriceImpact));
 
                 curve.push({
@@ -258,24 +282,16 @@ class LiquidityAnalyzer {
      */
     private async analyzeRoutes(mintAddress: string, userPubkey: PublicKey) {
         try {
-            const jupiter = await getSharedJupiter(userPubkey);
-            const routes = await jupiter.computeRoutes({
-                inputMint: new PublicKey("So11111111111111111111111111111111111111112"),
-                outputMint: new PublicKey(mintAddress),
-                amount: JSBI.BigInt(Math.floor(0.01 * 1e9)), // 0.01 SOL
-                slippageBps: 500 // 5%
-            } as any);
-
-            const routeCount = routes?.routesInfos?.length || 0;
-            const primaryDex = (routes?.routesInfos?.[0]?.marketInfos?.[0] as any)?.label || "Unknown";
+            // Skip Jupiter SDK route analysis due to assertion failures
+            // This is non-critical analysis, so we'll use defaults
+            logger.debug('LIQUIDITY', 'Skipping route analysis due to Jupiter SDK issues', {
+                mint: mintAddress.substring(0, 8) + '...'
+            });
             
-            // Calculate fragmentation score (higher = more fragmented)
-            const fragmentationScore = routeCount > 1 ? Math.min(routeCount / 10, 1) : 0;
-
             return {
-                primaryDex,
-                routeCount,
-                fragmentationScore
+                primaryDex: "Unknown",
+                routeCount: 1, // Assume single route exists if we got here
+                fragmentationScore: 0 // Assume not fragmented
             };
 
         } catch (error) {

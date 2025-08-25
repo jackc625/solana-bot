@@ -3,6 +3,7 @@
 
 import { Keypair, PublicKey, Connection } from "@solana/web3.js";
 import { computeSwap } from "../utils/jupiter.js";
+import { computeSwapHttp } from "../utils/jupiterHttp.js";
 import { sendPumpTrade } from "../utils/pumpTrade.js";
 import { shouldCooldown } from "../utils/globalCooldown.js";
 import { connection as sharedConnection, loadWallet, getConnection } from "../utils/solana.js";
@@ -51,7 +52,7 @@ export async function getCurrentPriceViaJupiter(
     }
 
     try {
-        const route = await computeSwap(mint, amount, wallet.publicKey);
+        const route = await computeSwapHttp(mint, amount, wallet.publicKey);
         if (!route || !route.outAmount) {
             logger.debug('TRADING', 'No route found for price check', { mint, amount });
             return null;

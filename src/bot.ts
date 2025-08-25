@@ -43,6 +43,15 @@ const MAX_BUYS = 1;
 const recentlyQuoted = new Set<string>();
 let recentQuotes: string[] = [];
 
+// Token processing deduplication cache
+const processedTokens = new Set<string>();
+const PROCESSED_TOKEN_TTL = 5 * 60 * 1000; // 5 minutes
+
+// Clean up processed tokens cache periodically
+setInterval(() => {
+    processedTokens.clear();
+}, PROCESSED_TOKEN_TTL);
+
 async function main() {
     process.on("uncaughtException", (err) => {
         console.error("Uncaught Exception:", err);
@@ -220,6 +229,18 @@ async function handleValidatedToken(token: PumpToken) {
     const config = loadBotConfig();
     const wallet = loadWallet();
     if (!wallet) return;
+
+    // Prevent duplicate processing
+    if (processedTokens.has(token.mint)) {
+        logger.debug('BOT', 'Skipping already processed token', { 
+            mint: token.mint.substring(0, 8) + '...' 
+        });
+        return;
+    }
+    processedTokens.add(token.mint);
+
+    // Add small delay to avoid overwhelming Jupiter API
+    await new Promise(resolve => setTimeout(resolve, 500));
 
     try {
         logger.info('BOT', 'Processing validated token', { 

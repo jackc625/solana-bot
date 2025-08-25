@@ -11,7 +11,7 @@ import { normalizeMint } from "../utils/normalizeMint.js";
 import { loadWallet } from "../utils/solana.js";
 import { getCurrentPriceViaJupiter } from "./trading.js";
 import { loadBotConfig } from "../config/index.js";
-import { getSharedJupiter } from "../utils/jupiter.js";
+import { hasDirectJupiterRouteHttp } from "../utils/jupiterHttp.js";
 import liquidityAnalyzer from "../utils/liquidityAnalysis.js";
 
 // Retry loop frequency
@@ -40,9 +40,6 @@ export const startRetryValidator = async (onValidToken: (token: PumpToken) => Pr
     const config = loadBotConfig();
     const solMint = new PublicKey("So11111111111111111111111111111111111111112");
 
-    // Cache Jupiter instance once initialized
-    let jupiter: Awaited<ReturnType<typeof getSharedJupiter>> | null = null;
-
     setInterval(async () => {
         for (const [rawKey, token] of Array.from(pendingTokens.entries())) {
             try {
@@ -67,37 +64,12 @@ export const startRetryValidator = async (onValidToken: (token: PumpToken) => Pr
                 const tokenMint = new PublicKey(normalized);
                 const attempts = retryAttempts[rawKey] ?? 0;
 
-                // Initialize Jupiter lazily only when we need it
-                if (!jupiter) {
-                    try {
-                        jupiter = await getSharedJupiter(wallet.publicKey);
-                        console.log("✅ Jupiter initialized successfully in retry validator");
-                    } catch (err: any) {
-                        console.warn("⚠️ Jupiter initialization failed in retry validator:", err?.message || err);
-                        // Reset attempts counter to avoid spamming for this specific Jupiter failure
-                        retryAttempts[rawKey] = (retryAttempts[rawKey] ?? 0) + 1;
-                        if (retryAttempts[rawKey] >= MAX_ATTEMPTS) {
-                            console.warn(`⚠️ Removing token ${rawKey} due to Jupiter init failures`);
-                            pendingTokens.delete(rawKey);
-                            delete retryAttempts[rawKey];
-                            stability.delete(rawKey);
-                        }
-                        // Skip this cycle and try again later
-                        continue;
-                    }
-                }
-
-                // 1) Check for a direct Jupiter route
+                // 1) Check for a direct Jupiter route using HTTP API
                 let jupRoute = false;
                 try {
-                    jupRoute = await hasDirectJupiterRoute(jupiter, solMint, tokenMint);
+                    jupRoute = await hasDirectJupiterRouteHttp(solMint.toBase58(), tokenMint.toBase58());
                 } catch (err: any) {
                     console.warn(`⚠️ Jupiter route check failed for ${normalized}:`, err?.message || err);
-                    if (err?.message?.includes("Assertion failed")) {
-                        // Reset Jupiter instance on assertion failures
-                        jupiter = null;
-                        console.warn("⚠️ Jupiter instance reset due to assertion failure");
-                    }
                     jupRoute = false;
                 }
 
@@ -107,11 +79,6 @@ export const startRetryValidator = async (onValidToken: (token: PumpToken) => Pr
                     priceInfo = await getCurrentPriceViaJupiter(normalized, 0.005, wallet);
                 } catch (err: any) {
                     console.warn(`⚠️ Jupiter price check failed for ${normalized}:`, err?.message || err);
-                    if (err?.message?.includes("Assertion failed")) {
-                        // Reset Jupiter instance on assertion failures
-                        jupiter = null;
-                        console.warn("⚠️ Jupiter instance reset due to assertion failure");
-                    }
                 }
                 
                 // SAFETY-006: Use actual liquidity analysis instead of probe amount

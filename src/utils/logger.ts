@@ -26,6 +26,7 @@ class Logger {
     private tradeLogPath: string;
     private errorLogPath: string;
     private debugLogPath: string;
+    private maxLogSize: number = 50 * 1024 * 1024; // 50MB max log size
 
     constructor() {
         this.logLevel = this.getLogLevel();
@@ -119,6 +120,11 @@ class Logger {
 
     private async writeToFile(filepath: string, content: string, append = true) {
         try {
+            // Check log rotation for debug.log
+            if (append && filepath === this.debugLogPath) {
+                await this.rotateLogIfNeeded(filepath);
+            }
+            
             if (append) {
                 await fs.appendFile(filepath, content + '\n');
             } else {
@@ -126,6 +132,22 @@ class Logger {
             }
         } catch (err) {
             console.error(`Failed to write to ${filepath}:`, err);
+        }
+    }
+
+    private async rotateLogIfNeeded(filepath: string) {
+        try {
+            const stats = await fs.stat(filepath).catch(() => null);
+            if (stats && stats.size > this.maxLogSize) {
+                // Rotate: keep last 1000 lines only
+                const content = await fs.readFile(filepath, 'utf-8');
+                const lines = content.split('\n');
+                const keepLines = lines.slice(-1000);
+                await fs.writeFile(filepath, keepLines.join('\n'));
+                console.log(`📋 Rotated ${filepath} - kept last 1000 lines`);
+            }
+        } catch (err) {
+            console.error(`Failed to rotate log ${filepath}:`, err);
         }
     }
 

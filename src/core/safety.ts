@@ -254,7 +254,7 @@ export async function checkTokenSafety(
             // Block tokens with critical social risk flags
             const criticalFlags = socialResult.details.riskFlags.filter(flag => 
                 flag.includes('BLACKLISTED') || 
-                flag.includes('NO_SOCIAL_PRESENCE') && config.enhancedHoneypotDetection
+                (flag.includes('NO_SOCIAL_PRESENCE') && config.requireSocialPresence)
             );
             
             if (criticalFlags.length > 0) {

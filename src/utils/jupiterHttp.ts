@@ -6,8 +6,59 @@ import { loadBotConfig } from "../config/index.js";
 import logger from "./logger.js";
 
 const config = loadBotConfig();
-const JUPITER_API_BASE = "https://lite-api.jup.ag";
+const JUPITER_API_BASE = "https://quote-api.jup.ag";
 const SOL_MINT = "So11111111111111111111111111111111111111112";
+
+// Rate limiting implementation
+class JupiterRateLimiter {
+    private lastRequestTime = 0;
+    private readonly minInterval = 200; // Minimum 200ms between requests
+    private requestQueue: Array<() => Promise<any>> = [];
+    private processing = false;
+
+    async throttle<T>(fn: () => Promise<T>): Promise<T> {
+        return new Promise((resolve, reject) => {
+            this.requestQueue.push(async () => {
+                try {
+                    const result = await fn();
+                    resolve(result);
+                } catch (error) {
+                    reject(error);
+                }
+            });
+            
+            if (!this.processing) {
+                this.processQueue();
+            }
+        });
+    }
+
+    private async processQueue() {
+        if (this.processing || this.requestQueue.length === 0) return;
+        
+        this.processing = true;
+        
+        while (this.requestQueue.length > 0) {
+            const now = Date.now();
+            const timeSinceLastRequest = now - this.lastRequestTime;
+            
+            if (timeSinceLastRequest < this.minInterval) {
+                const delay = this.minInterval - timeSinceLastRequest;
+                await new Promise(resolve => setTimeout(resolve, delay));
+            }
+            
+            const request = this.requestQueue.shift();
+            if (request) {
+                this.lastRequestTime = Date.now();
+                await request();
+            }
+        }
+        
+        this.processing = false;
+    }
+}
+
+const rateLimiter = new JupiterRateLimiter();
 
 interface JupiterQuoteResponse {
     inputMint: string;
@@ -46,7 +97,8 @@ export async function getJupiterQuote(
     inputMint: string,
     outputMint: string,
     amount: number,
-    slippageBps?: number
+    slippageBps?: number,
+    retryCount: number = 0
 ): Promise<JupiterQuoteResponse | null> {
     const slippage = slippageBps ?? (config.slippage * 100);
     const amountLamports = Math.floor(amount * 1e9);
@@ -60,57 +112,85 @@ export async function getJupiterQuote(
         asLegacyTransaction: "false"
     });
 
-    try {
-        const response = await fetch(`${JUPITER_API_BASE}/v6/quote?${params}`, {
-            method: 'GET',
-            headers: {
-                'Accept': 'application/json',
-            }
-        });
+    return rateLimiter.throttle(async () => {
+        try {
+            const response = await fetch(`${JUPITER_API_BASE}/v6/quote?${params}`, {
+                method: 'GET',
+                headers: {
+                    'Accept': 'application/json',
+                }
+            });
 
-        if (!response.ok) {
-            logger.warn("JUPITER_HTTP", `Quote request failed: ${response.status} ${response.statusText}`);
+            if (response.status === 429) {
+                // Rate limited - implement exponential backoff
+                if (retryCount < 3) {
+                    const delay = Math.pow(2, retryCount) * 1000; // 1s, 2s, 4s
+                    logger.warn("JUPITER_HTTP", `Rate limited, retrying in ${delay}ms (attempt ${retryCount + 1}/3)`);
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                    return getJupiterQuote(inputMint, outputMint, amount, slippageBps, retryCount + 1);
+                } else {
+                    logger.warn("JUPITER_HTTP", "Max retries reached for rate limiting");
+                    return null;
+                }
+            }
+
+            if (!response.ok) {
+                const url = `${JUPITER_API_BASE}/v6/quote?${params}`;
+                logger.warn("JUPITER_HTTP", `Quote request failed: ${response.status} ${response.statusText}`, {
+                    url,
+                    inputMint,
+                    outputMint,
+                    amount: amountLamports
+                });
+                return null;
+            }
+
+            const data = await response.json();
+            return data;
+        } catch (error) {
+            logger.error("JUPITER_HTTP", "Failed to get quote", {}, error);
             return null;
         }
-
-        const data = await response.json();
-        return data;
-    } catch (error) {
-        logger.error("JUPITER_HTTP", "Failed to get quote", {}, error);
-        return null;
-    }
+    });
 }
 
 export async function getJupiterSwap(
     quoteResponse: JupiterQuoteResponse,
     userPublicKey: string
 ): Promise<JupiterSwapResponse | null> {
-    try {
-        const response = await fetch(`${JUPITER_API_BASE}/v6/swap`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Accept': 'application/json',
-            },
-            body: JSON.stringify({
-                quoteResponse,
-                userPublicKey,
-                wrapAndUnwrapSol: true,
-                computeUnitPriceMicroLamports: "auto"
-            })
-        });
+    return rateLimiter.throttle(async () => {
+        try {
+            const response = await fetch(`${JUPITER_API_BASE}/v6/swap`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                },
+                body: JSON.stringify({
+                    quoteResponse,
+                    userPublicKey,
+                    wrapAndUnwrapSol: true,
+                    computeUnitPriceMicroLamports: "auto"
+                })
+            });
 
-        if (!response.ok) {
-            logger.warn("JUPITER_HTTP", `Swap request failed: ${response.status} ${response.statusText}`);
+            if (response.status === 429) {
+                logger.warn("JUPITER_HTTP", "Swap request rate limited");
+                return null;
+            }
+
+            if (!response.ok) {
+                logger.warn("JUPITER_HTTP", `Swap request failed: ${response.status} ${response.statusText}`);
+                return null;
+            }
+
+            const data = await response.json();
+            return data;
+        } catch (error) {
+            logger.error("JUPITER_HTTP", "Failed to get swap transaction", {}, error);
             return null;
         }
-
-        const data = await response.json();
-        return data;
-    } catch (error) {
-        logger.error("JUPITER_HTTP", "Failed to get swap transaction", {}, error);
-        return null;
-    }
+    });
 }
 
 export async function computeSwapHttp(
