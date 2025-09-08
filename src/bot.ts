@@ -26,7 +26,7 @@ import { pendingTokens } from "@state/pendingTokens.js";
 import { sendTelegramMessage, startTelegramBot } from "@utils/telegram.js";
 import { normalizeMint } from "@utils/normalizeMint.js";
 import {monitorPumpPortal} from "@utils/pumpPortalSocket.js";
-import { PumpToken } from "@types/PumpToken.js";
+import { PumpToken } from "@types/index.js";
 import { 
     validateEnvironment, 
     validateRpcConnection, 

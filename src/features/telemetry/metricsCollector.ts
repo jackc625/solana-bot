@@ -3,10 +3,10 @@
 
 import { register, Counter, Histogram, Gauge, collectDefaultMetrics } from 'prom-client';
 import { Connection } from '@solana/web3.js';
-import logger from './logger.js';
-import { loadBotConfig } from '../config/index.js';
-import rpcManager from './rpcManager.js';
-import positionPersistence from './positionPersistence.js';
+import logger from '@utils/logger.js';
+import { loadBotConfig } from '@config/index.js';
+import rpcManager from '@utils/rpcManager.js';
+import positionPersistence from '@utils/positionPersistence.js';
 
 /**
  * Trading operation types for metrics labeling
@@ -463,6 +463,13 @@ class MetricsCollector {
             outcome: score >= threshold ? 'success' : 'failure',
             token_symbol: 'unknown'
         });
+    }
+
+    /**
+     * Record discovery to trade latency
+     */
+    recordDiscoveryLatency(latencyMs: number, outcome: 'buy_sent' | 'rejected'): void {
+        this.discoveryToTrade.observe(latencyMs / 1000); // Convert to seconds
     }
 
     /**

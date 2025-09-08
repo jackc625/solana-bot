@@ -8,6 +8,7 @@ export interface PumpToken {
     creator: string;
     timestamp?: number;      // Alternative to launchedAt
     launchedAt?: number;
+    discoveredAt?: number;   // When token was first discovered by the bot
     simulatedLp: number;
     hasJupiterRoute: boolean;
     lpTokenAddress: string;
