@@ -19,27 +19,14 @@ import { hasDirectJupiterRouteHttp } from "../utils/jupiterHttp.js";
 import { getCurrentPriceViaJupiter } from "./trading.js";
 import { checkTokenSafety as runFullSafetyChecks } from "./safety.js";
 import { loadBlacklist } from "../utils/blacklist.js";
+import { creatorAnalyzer } from "../features/safety/stageAwareSafety/checks/creator.js";
+import { velocityTracker } from "../features/safety/stageAwareSafety/checks/velocity.js";
+import { tokenScorer } from "../features/safety/stageAwareSafety/checks/scoring.js";
 
 // Stage-specific safety check implementations
 export class StageAwareSafetyChecker {
     private config: SafetyCheckConfig;
     private botConfig: any;
-    
-    // Creator behavior tracking
-    private creatorBehaviorCache = new Map<string, {
-        lastActivity: number;
-        tokenCount: number;
-        suspiciousPatterns: string[];
-        riskScore: number;
-    }>();
-    
-    // Velocity tracking for bonded tokens
-    private velocityCache = new Map<string, {
-        firstSeen: number;
-        buyEvents: Array<{ timestamp: number; wallet: string; amount: number }>;
-        uniqueWallets: Set<string>;
-        totalVolume: number;
-    }>();
 
     constructor(config?: Partial<SafetyCheckConfig>) {
         this.config = { ...DEFAULT_STAGE_CONFIG, ...config };
@@ -452,70 +439,16 @@ export class StageAwareSafetyChecker {
 
     // Helper methods
     private calculatePreBondScore(candidate: TokenCandidate): number {
-        let score = 4; // Base score (neutral)
-        
-        // Token name quality assessment
-        const nameQuality = this.assessTokenNameQuality(candidate.mint);
-        score += nameQuality * 0.5; // Up to +1.5 points
-        
-        // Creator wallet assessment
-        const creatorAssessment = this.assessCreatorQuality(candidate.creator);
-        score += creatorAssessment * 1.0; // Up to +2 points
-        
-        // Time of day bonus (UTC hours)
-        const hour = new Date().getUTCHours();
-        if (hour >= 13 && hour <= 21) { // 1 PM - 9 PM UTC (prime trading hours)
-            score += 0.5;
-        } else if (hour >= 9 && hour <= 12) { // Morning hours
-            score += 0.3;
-        }
-        
-        // Recent creator activity penalty
-        const creatorBehavior = this.analyzeCreatorBehavior(candidate.creator);
-        if (creatorBehavior.tokenCount > 5) { // Too many recent tokens
-            score -= 1.0;
-        } else if (creatorBehavior.tokenCount > 2) {
-            score -= 0.5;
-        }
-        
-        // Suspicious pattern penalty
-        if (creatorBehavior.suspiciousPatterns.length > 0) {
-            score -= creatorBehavior.suspiciousPatterns.length * 0.5;
-        }
-        
-        return Math.max(1, Math.min(7, Math.round(score * 10) / 10)); // Round to 1 decimal, clamp 1-7
+        // Use the new scoring system (0-1 scale) and convert to legacy 1-7 scale for compatibility
+        const normalizedScore = tokenScorer.calculatePreBondScore(candidate);
+        return Math.max(1, Math.min(7, 1 + (normalizedScore * 6))); // Convert 0-1 to 1-7 scale
     }
     
-    private assessTokenNameQuality(mintOrName: string): number {
-        // For now, using mint address as we don't have token metadata yet
-        // In a real implementation, this would analyze the actual token name/symbol
-        
-        let quality = 0;
-        
-        // Penalize extremely short or long names (assuming we had the actual name)
-        // For now, just return neutral score since we only have mint address
-        return quality;
-    }
     
     private assessCreatorQuality(creator: string): number {
-        let quality = 0;
-        
-        // Check if creator has history of successful tokens
-        const behavior = this.analyzeCreatorBehavior(creator);
-        
-        // Reward moderate activity (not too little, not too much)
-        if (behavior.tokenCount >= 1 && behavior.tokenCount <= 3) {
-            quality += 1.0;
-        } else if (behavior.tokenCount === 0) {
-            quality += 0.5; // New creator bonus (could be legitimate)
-        } else if (behavior.tokenCount > 10) {
-            quality -= 1.0; // Too prolific, likely spam
-        }
-        
-        // Penalize high risk score
-        quality -= behavior.riskScore;
-        
-        return quality;
+        // Delegate to the new creator analyzer and convert scale
+        const normalizedScore = creatorAnalyzer.assessCreatorQuality(creator);
+        return (normalizedScore - 0.5) * 2; // Convert 0-1 scale to -1 to 1 scale for compatibility
     }
     
     private analyzeCreatorBehavior(creator: string): {
@@ -524,45 +457,8 @@ export class StageAwareSafetyChecker {
         suspiciousPatterns: string[];
         riskScore: number;
     } {
-        const cached = this.creatorBehaviorCache.get(creator);
-        if (cached) {
-            return cached;
-        }
-        
-        // Initialize behavior analysis for new creator
-        const now = Date.now();
-        const behavior = {
-            lastActivity: now,
-            tokenCount: 1, // This token
-            suspiciousPatterns: [] as string[],
-            riskScore: 0
-        };
-        
-        // Check for suspicious patterns
-        // Pattern 1: Too many tokens in short time
-        if (behavior.tokenCount > 5) {
-            behavior.suspiciousPatterns.push('high_frequency');
-            behavior.riskScore += 0.3;
-        }
-        
-        // Pattern 2: Very new wallet creating tokens immediately
-        // (We'd need additional chain data to implement this fully)
-        
-        this.creatorBehaviorCache.set(creator, behavior);
-        
-        // Clean up old entries periodically
-        if (this.creatorBehaviorCache.size > 1000) {
-            const entries = Array.from(this.creatorBehaviorCache.entries());
-            entries.sort(([,a], [,b]) => b.lastActivity - a.lastActivity);
-            
-            // Keep only the 500 most recent
-            this.creatorBehaviorCache.clear();
-            for (const [key, value] of entries.slice(0, 500)) {
-                this.creatorBehaviorCache.set(key, value);
-            }
-        }
-        
-        return behavior;
+        // Delegate to the new creator analyzer
+        return creatorAnalyzer.analyzeCreatorBehavior(creator);
     }
     
     private calculateBondingVelocity(mint: string): {
@@ -571,61 +467,13 @@ export class StageAwareSafetyChecker {
         uniqueWallets: Set<string>;
         totalVolume: number;
     } {
-        const cached = this.velocityCache.get(mint);
-        if (cached) {
-            return cached;
-        }
-        
-        // Initialize velocity tracking for new token
-        const now = Date.now();
-        const velocity = {
-            firstSeen: now,
-            buyEvents: [] as Array<{ timestamp: number; wallet: string; amount: number }>,
-            uniqueWallets: new Set<string>(),
-            totalVolume: 0
-        };
-        
-        this.velocityCache.set(mint, velocity);
-        
-        // Clean up old entries (tokens older than 1 hour)
-        const oneHourAgo = now - (60 * 60 * 1000);
-        for (const [key, value] of this.velocityCache.entries()) {
-            if (value.firstSeen < oneHourAgo) {
-                this.velocityCache.delete(key);
-            }
-        }
-        
-        return velocity;
+        // Delegate to the velocity tracker
+        return velocityTracker.calculateBondingVelocity(mint);
     }
     
     private async checkCreatorBehavior(creator: string, currentMint: string): Promise<boolean> {
-        const behavior = this.analyzeCreatorBehavior(creator);
-        
-        // Update token count for this creator
-        behavior.tokenCount++;
-        behavior.lastActivity = Date.now();
-        
-        // Check for suspicious patterns
-        
-        // Pattern 1: Too many tokens in short time (>3 tokens in last hour)
-        if (behavior.tokenCount > 3) {
-            const recentTokens = behavior.tokenCount;
-            if (recentTokens > 3) {
-                behavior.suspiciousPatterns.push('rapid_deployment');
-                behavior.riskScore += 0.4;
-            }
-        }
-        
-        // Pattern 2: Consistent failure pattern (would need historical data)
-        // This would require tracking success rates of previous tokens
-        
-        // Pattern 3: Wallet funding patterns (would need on-chain analysis)
-        // This would require checking recent SOL deposits/patterns
-        
-        this.creatorBehaviorCache.set(creator, behavior);
-        
-        // Return true if suspicious (risk score > threshold)
-        return behavior.riskScore > 0.6;
+        // Delegate to the creator analyzer
+        return creatorAnalyzer.checkCreatorBehavior(creator, currentMint);
     }
 
     private async detectRaydiumPool(mint: string): Promise<boolean> {
