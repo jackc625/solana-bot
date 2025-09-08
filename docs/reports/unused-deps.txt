@@ -1,0 +1,23 @@
+Unused dependencies
+* @jup-ag/api
+* @metaplex-foundation/mpl-token-metadata
+* node-telegram-bot-api
+* rpc-websockets
+* socket.io-client
+Unused devDependencies
+* @types/bn.js
+* @types/node-telegram-bot-api
+* @typescript-eslint/eslint-plugin
+* @typescript-eslint/parser
+* depcheck
+* eslint
+* eslint-plugin-import
+* eslint-plugin-unused-imports
+* jest-environment-node
+* knip
+* madge
+* prettier
+* ts-node
+* tsx
+Missing dependencies
+* node-fetch: .\scripts\quickMetricsTest.ts

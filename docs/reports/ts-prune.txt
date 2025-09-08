@@ -1,0 +1,160 @@
+npm WARN exec The following package was not found and will be installed: ts-prune@0.10.3
+\src\config\index.ts:19 - MEVProtectionConfig (used in module)
+\src\core\dualExecutionStrategy.ts:29 - ExecutionMethod (used in module)
+\src\core\dualExecutionStrategy.ts:35 - DualExecutionConfig (used in module)
+\src\core\dualExecutionStrategy.ts:52 - ExecutionResult (used in module)
+\src\core\dualExecutionStrategy.ts:84 - TradeParams (used in module)
+\src\core\dualExecutionStrategy.ts:711 - dualExecutionStrategy (used in module)
+\src\core\emergencyCircuitBreaker.ts:198 - emergencyCircuitBreaker (used in module)
+\src\core\mevProtection.ts:15 - MEVProtectionRequest (used in module)
+\src\core\mevProtection.ts:27 - MEVProtectionResult (used in module)
+\src\core\mevProtection.ts:44 - MEVProtectedTradeExecution (used in module)
+\src\core\mevProtection.ts:556 - default
+\src\core\portfolioRiskManager.ts:9 - DeployerExposure (used in module)
+\src\core\portfolioRiskManager.ts:17 - TokenPosition (used in module)
+\src\core\portfolioRiskManager.ts:25 - PortfolioRiskResult (used in module)
+\src\core\portfolioRiskManager.ts:35 - PortfolioRiskState (used in module)
+\src\core\portfolioRiskManager.ts:554 - portfolioRiskManager (used in module)
+\src\core\riskManager.ts:10 - RiskCheckResult (used in module)
+\src\core\riskManager.ts:18 - PortfolioState (used in module)
+\src\core\riskManager.ts:426 - riskManager (used in module)
+\src\core\safety.ts:42 - SafetyResult (used in module)
+\src\core\scoring.ts:16 - ScoreResult (used in module)
+\src\core\stageAwarePipeline.ts:11 - StageAwarePipelineConfig (used in module)
+\src\core\stageAwarePipeline.ts:19 - DEFAULT_PIPELINE_CONFIG (used in module)
+\src\core\stageAwarePipeline.ts:27 - StageAwarePipeline (used in module)
+\src\core\stageAwareSafety.ts:508 - stageAwareSafety
+\src\core\tokenWatchlist.ts:18 - WatchlistStats
+\src\core\tokenWatchlist.ts:26 - TokenWatchlist
+\src\sell\autoSellManager.ts:400 - __clearAllWatchers
+\src\state\inflight.ts:19 - isInflight
+\src\state\stateMachineCoordinator.ts:16 - StateMachineCoordinator (used in module)
+\src\state\stateMachineCoordinator.ts:468 - default
+\src\state\tokenStateMachine.ts:134 - StateTransitionResult (used in module)
+\src\state\tokenStateMachine.ts:571 - default
+\src\types\index.ts:3 - PumpToken
+\src\types\index.ts:4 - TokenStage
+\src\types\index.ts:6 - TokenCandidate
+\src\types\index.ts:34 - StageTransitionResult
+\src\types\index.ts:42 - SafetyCheckConfig
+\src\types\index.ts:72 - DEFAULT_STAGE_CONFIG
+\src\types\index.ts:102 - POOL_DETECTION_CONFIG
+\src\types\index.ts:109 - FAILURE_REASONS
+\src\types\index.ts:140 - FailureReason
+\src\utils\getLpLiquidity.ts:13 - getLpLiquidityDirectly
+\src\utils\getLpTokenAddress.ts:7 - getLpTokenAddress
+\src\utils\jitoBundle.ts:48 - JitoBundleConfig (used in module)
+\src\utils\jitoBundle.ts:67 - BundleStatus (used in module)
+\src\utils\jitoBundle.ts:509 - DEFAULT_TIP_AMOUNTS (used in module)
+\src\utils\jitoBundle.ts:509 - JITO_BLOCK_ENGINES (used in module)
+\src\utils\jupiter.ts:256 - simulateSell
+\src\utils\jupiter.ts:296 - HoneypotTestResult
+\src\utils\jupiterHttp.ts:96 - getJupiterQuote
+\src\utils\jupiterHttp.ts:157 - getJupiterSwap
+\src\utils\jupiterHttp.ts:225 - simulateSellHttp
+\src\utils\liquidityAnalysis.ts:412 - liquidityAnalyzer (used in module)
+\src\utils\logger.ts:270 - logTrade (used in module)
+\src\utils\logger.ts:274 - logError
+\src\utils\logger.ts:4 - LogLevel (used in module)
+\src\utils\logger.ts:11 - LogEntry (used in module)
+\src\utils\lpLockVerification.ts:47 - verifyLpLockStatus (used in module)
+\src\utils\lpLockVerification.ts:310 - detectAmmType (used in module)
+\src\utils\lpLockVerification.ts:25 - LpLockStatus (used in module)
+\src\utils\lpLockVerification.ts:37 - LpLockConfig (used in module)
+\src\utils\lpLockVerification.ts:363 - default
+\src\utils\metricsCollector.ts:14 - TradingOperation (used in module)
+\src\utils\metricsCollector.ts:19 - TradingOutcome (used in module)
+\src\utils\metricsCollector.ts:24 - SystemComponent (used in module)
+\src\utils\metricsCollector.ts:601 - metricsCollector (used in module)
+\src\utils\metricsServer.ts:9 - MetricsServerConfig (used in module)
+\src\utils\metricsServer.ts:362 - default
+\src\utils\mevAwarePumpTrade.ts:289 - sendPumpTrade
+\src\utils\mevAwarePumpTrade.ts:18 - MEVAwarePumpTradeParams (used in module)
+\src\utils\mevAwarePumpTrade.ts:35 - MEVAwarePumpTradeResult (used in module)
+\src\utils\networkHealth.ts:206 - networkHealthMonitor (used in module)
+\src\utils\onChainLpReserves.ts:517 - getOnChainLpReserves (used in module)
+\src\utils\onChainLpReserves.ts:34 - OnChainLpData (used in module)
+\src\utils\onChainLpReserves.ts:61 - LpPoolSearchResult (used in module)
+\src\utils\onChainLpReserves.ts:512 - onChainLpAnalyzer (used in module)
+\src\utils\onChainLpReserves.ts:543 - default
+\src\utils\poolDetection.ts:12 - PoolDetectionResult (used in module)
+\src\utils\poolDetection.ts:21 - PoolDetector (used in module)
+\src\utils\positionPersistence.ts:12 - PersistedPosition (used in module)
+\src\utils\positionPersistence.ts:37 - DeployerExposureData (used in module)
+\src\utils\positionPersistence.ts:45 - PortfolioRiskState (used in module)
+\src\utils\positionPersistence.ts:50 - PersistedState (used in module)
+\src\utils\positionPersistence.ts:64 - PositionReconciliationResult (used in module)
+\src\utils\positionPersistence.ts:607 - positionPersistence (used in module)
+\src\utils\rpcManager.ts:8 - RpcHealthMetrics (used in module)
+\src\utils\rpcManager.ts:20 - RpcStatus (used in module)
+\src\utils\rpcManager.ts:480 - rpcManager (used in module)
+\src\utils\sandwichDetection.ts:25 - SandwichIndicator (used in module)
+\src\utils\sandwichDetection.ts:41 - MempoolAnalysis (used in module)
+\src\utils\socialVerification.ts:8 - SocialVerificationResult (used in module)
+\src\utils\socialVerification.ts:27 - TokenSocialData (used in module)
+\src\utils\socialVerification.ts:558 - socialVerificationService (used in module)
+\src\utils\solana.ts:101 - deriveAssociatedTokenAddress (used in module)
+\src\utils\solana.ts:119 - getTokenAccountInfo (used in module)
+\src\utils\solana.ts:13 - SOL_MINT
+\src\utils\solana.ts:27 - PRIVATE_KEY (used in module)
+\src\utils\stageAwareMetrics.ts:8 - StageMetrics (used in module)
+\src\utils\stageAwareMetrics.ts:17 - PipelineMetrics (used in module)
+\src\utils\testLiquidityAnalysis.ts:113 - testLiquidityAnalysis (used in module)
+\src\utils\testSocialVerification.ts:209 - testSocialVerification (used in module)
+\src\utils\testSocialVerification.ts:209 - testLinkExtraction (used in module)
+\src\utils\transactionPreparation.ts:53 - ATAManager (used in module)
+\src\utils\transactionPreparation.ts:301 - transactionPrep (used in module)
+\src\utils\validateEnvironment.ts:7 - EnvironmentValidationResult (used in module)
+\src\utils\withTimeout.ts:2 - withTimeout
+\src\core\clients\splTokenCompat.ts:14 - getMint (used in module)
+\src\core\clients\splTokenCompat.ts:8 - Mint
+\src\core\clients\splTokenCompat.ts:8 - Account
+\src\core\clients\splTokenCompat.ts:11 - getMintCompat (used in module)
+\src\core\clients\splTokenCompat.ts:30 - createAssociatedTokenAccountInstruction
+\src\core\clients\splTokenCompat.ts:31 - getAssociatedTokenAddress
+\src\core\clients\splTokenCompat.ts:32 - ASSOCIATED_TOKEN_PROGRAM_ID
+\src\core\clients\splTokenCompat.ts:33 - TOKEN_PROGRAM_ID
+\src\core\events\bus.ts:3 - bus (used in module)
+\src\core\events\bus.ts:5 - DomainEvent (used in module)
+\src\features\discovery\index.ts:2 - monitorPumpPortal
+\src\features\discovery\index.ts:4 - addPendingToken
+\src\features\discovery\index.ts:5 - getPendingTokens
+\src\features\discovery\index.ts:6 - removePendingToken
+\src\features\discovery\index.ts:7 - clearPendingTokens
+\src\features\discovery\index.ts:8 - hasPendingToken
+\src\features\discovery\index.ts:10 - tokenWatchlist
+\src\features\discovery\pendingTokens.ts:10 - pendingTokens (used in module)
+\src\features\execution\types.ts:3 - TradeParams (used in module)
+\src\features\execution\types.ts:17 - TradeResult (used in module)
+\src\features\execution\types.ts:24 - ITradeExecutor
+\src\features\execution\types.ts:54 - ExecutionMethod
+\src\features\execution\types.ts:60 - RiskLevel
+\src\features\validation\index.ts:4 - retryValidator
+\src\features\validation\index.ts:126 - computeSwap
+\src\features\validation\index.ts:202 - getLpLiquidity
+\src\features\validation\index.ts:256 - simulateSell
+\src\features\validation\index.ts:315 - enhancedHoneypotDetection
+\src\features\validation\index.ts:549 - simulateBuySell
+\src\features\validation\index.ts:296 - HoneypotTestResult
+\src\features\validation\index.ts:573 - jupiterQueue
+\src\features\validation\index.ts:574 - getSharedJupiter
+\src\features\validation\index.ts:96 - getJupiterQuote
+\src\features\validation\index.ts:157 - getJupiterSwap
+\src\features\validation\index.ts:196 - computeSwapHttp
+\src\features\validation\index.ts:225 - simulateSellHttp
+\src\features\validation\index.ts:251 - hasDirectJupiterRouteHttp
+\src\features\validation\index.ts:264 - getLpLiquidityHttp
+\src\features\validation\retryValidator.ts:33 - startRetryValidator (used in module)
+\src\features\safety\stageAwareSafety\index.ts:7 - SafetyContext (used in module)
+\src\features\safety\stageAwareSafety\index.ts:13 - SafetyReport (used in module)
+\src\features\safety\stageAwareSafety\checks\authorities.ts:17 - checkTokenAuthorities
+\src\features\safety\stageAwareSafety\checks\authorities.ts:5 - AuthoritiesCheckResult (used in module)
+\src\features\safety\stageAwareSafety\checks\creator.ts:15 - CreatorAnalyzer (used in module)
+\src\features\safety\stageAwareSafety\checks\route.ts:24 - checkJupiterRoute
+\src\features\safety\stageAwareSafety\checks\route.ts:7 - RouteCheckResult (used in module)
+\src\features\safety\stageAwareSafety\checks\route.ts:15 - LiquidityConfig (used in module)
+\src\features\safety\stageAwareSafety\checks\scoring.ts:8 - TokenScorer (used in module)
+\src\features\safety\stageAwareSafety\checks\velocity.ts:13 - VelocityTracker (used in module)
+\src\features\safety\stageAwareSafety\stages\preBond.ts:25 - checkPreBondStage
+\src\features\safety\stageAwareSafety\stages\preBond.ts:5 - PreBondConfig (used in module)
+\src\features\safety\stageAwareSafety\stages\preBond.ts:12 - TokenMetadata (used in module)
