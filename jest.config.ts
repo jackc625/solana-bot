@@ -6,11 +6,14 @@ const tsconfig = {
   compilerOptions: {
     paths: {
       '@/*': ['src/*'],
-      '@features/*': ['src/features/*'],
-      '@core/*': ['src/core/*'],
-      '@utils/*': ['src/utils/*'],
-      '@types/*': ['src/types/*'],
       '@config/*': ['src/config/*'],
+      '@core/*': ['src/core/*'],
+      '@features/*': ['src/features/*'],
+      '@types/*': ['src/types/*'],
+      '@utils/*': ['src/utils/*'],
+      '@state/*': ['src/state/*'],
+      '@sell/*': ['src/sell/*'],
+      '@init/*': ['src/init/*'],
     },
   },
 };

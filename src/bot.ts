@@ -1,44 +1,44 @@
 // src/bot.ts
 
 import "./init/fetchPatch.js";
-import { loadBotConfig } from "./config/index.js";
-import { connection, loadWallet, getWalletAddress, RPC_URL, getConnection } from "./utils/solana.js";
-import rpcManager from "./utils/rpcManager.js";
-import { checkTokenSafety } from "./core/safety.js";
-import { scoreToken } from "./core/scoring.js";
-import { snipeToken, getCurrentPriceViaJupiter } from "./core/trading.js";
+import { loadBotConfig } from "@config/index.js";
+import { connection, loadWallet, getWalletAddress, RPC_URL, getConnection } from "@utils/solana.js";
+import rpcManager from "@utils/rpcManager.js";
+import { checkTokenSafety } from "@core/safety.js";
+import { scoreToken } from "@core/scoring.js";
+import { snipeToken, getCurrentPriceViaJupiter } from "@core/trading.js";
 import {
     trackBuy,
     configureAutoSell,
     runAutoSellLoop,
     initAutoSellConfig,
     restorePositionsFromPersistence
-} from "./sell/autoSellManager.js";
-import positionPersistence from "./utils/positionPersistence.js";
-import portfolioRiskManager from "./core/portfolioRiskManager.js";
-import metricsCollector from "./utils/metricsCollector.js";
-import { metricsServer } from "./utils/metricsServer.js";
+} from "@sell/autoSellManager.js";
+import positionPersistence from "@utils/positionPersistence.js";
+import portfolioRiskManager from "@core/portfolioRiskManager.js";
+import metricsCollector from "@features/telemetry/metricsCollector.js";
+import { metricsServer } from "@features/telemetry/metricsServer.js";
 import { Connection, PublicKey, Keypair } from "@solana/web3.js";
-import { sleep } from "./utils/time.js";
-import { jupiterQueue } from "./utils/jupiter.js";
-import startRetryValidator from "./core/retryValidator.js";
-import { pendingTokens } from "./state/pendingTokens.js";
-import { sendTelegramMessage, startTelegramBot } from "./utils/telegram.js";
-import { normalizeMint } from "./utils/normalizeMint.js";
-import {monitorPumpPortal} from "./utils/pumpPortalSocket.js";
-import { PumpToken } from "./types/PumpToken.js";
+import { sleep } from "@utils/time.js";
+import { jupiterQueue } from "@utils/jupiter.js";
+import startRetryValidator from "@core/retryValidator.js";
+import { pendingTokens } from "@state/pendingTokens.js";
+import { sendTelegramMessage, startTelegramBot } from "@utils/telegram.js";
+import { normalizeMint } from "@utils/normalizeMint.js";
+import {monitorPumpPortal} from "@utils/pumpPortalSocket.js";
+import { PumpToken } from "@types/PumpToken.js";
 import { 
     validateEnvironment, 
     validateRpcConnection, 
     validateTelegramConfig, 
     printValidationResults 
-} from "./utils/validateEnvironment.js";
-import logger from "./utils/logger.js";
-import transactionPrep from "./utils/transactionPreparation.js";
-import { stateMachineCoordinator } from "./state/stateMachineCoordinator.js";
-import { tokenStateMachine } from "./state/tokenStateMachine.js";
-import { stageAwarePipeline } from "./core/stageAwarePipeline.js";
-import { stageAwareMetrics } from "./utils/stageAwareMetrics.js";
+} from "@utils/validateEnvironment.js";
+import logger from "@utils/logger.js";
+import transactionPrep from "@features/execution/transactionPreparation.js";
+import { stateMachineCoordinator } from "@state/stateMachineCoordinator.js";
+import { tokenStateMachine } from "@state/tokenStateMachine.js";
+import { stageAwarePipeline } from "@core/stageAwarePipeline.js";
+import { stageAwareMetrics } from "@features/telemetry/stageAwareMetrics.js";
 
 
 let lastSnipeTime = 0;

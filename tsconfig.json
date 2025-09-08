@@ -13,7 +13,19 @@
     "noImplicitReturns": true,
     "strictNullChecks": true,
     "skipLibCheck": true,
-    "isolatedModules": true
+    "isolatedModules": true,
+    "baseUrl": "./src",
+    "paths": {
+      "@/*": ["*"],
+      "@config/*": ["config/*"],
+      "@core/*": ["core/*"],
+      "@features/*": ["features/*"],
+      "@types/*": ["types/*"],
+      "@utils/*": ["utils/*"],
+      "@state/*": ["state/*"],
+      "@sell/*": ["sell/*"],
+      "@init/*": ["init/*"]
+    }
   },
   "include": ["src"]
 }
