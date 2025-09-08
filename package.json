@@ -18,6 +18,7 @@
     "graph:cycles": "madge --circular --extensions ts src",
     "unused:exports": "knip --report",
     "unused:deps": "depcheck --ignores=ts-jest",
+    "check:relpaths": "grep -R \"\\.{2}/\" src | grep -E \"\\.ts$\" || true",
     "check": "npm run lint && npm run typecheck && npm run test && npm run build"
   },
   "keywords": [],
