@@ -1,165 +1,156 @@
-# Architecture Decision Records (ADRs)
+# Architectural Decision Records (ADR)
 
-## ADR-001: Feature-Based Module Organization
+This document tracks key architectural decisions made during the development and restructuring of the Solana trading bot.
 
-**Date**: 2024-12-XX
-**Status**: Accepted
+## ADR-001: Feature-First Directory Structure
 
-### Context
+**Date**: Phase 4-5 Restructuring  
+**Status**: Accepted  
+**Context**: Original codebase had all functionality mixed in utils/ and core/ directories, making it hard to understand feature boundaries and maintain related code together.
 
-The codebase grew organically with mixed concerns in the `utils/` directory and unclear module boundaries. This made it difficult to understand dependencies and maintain code.
+**Decision**: Adopt feature-first organization where related functionality is grouped into feature modules under `src/features/`:
 
-### Decision
+- `src/features/mev/` - MEV protection and Jito integration
+- `src/features/execution/` - Trade execution strategies  
+- `src/features/telemetry/` - Metrics and monitoring
+- `src/features/validation/` - Token validation logic
+- `src/features/discovery/` - Token discovery and watchlist
+- `src/features/safety/` - Safety checks and verification
 
-Reorganize code using **feature-first architecture**:
-
-- Group related functionality in `src/features/{feature}/`
-- Shared business logic in `src/core/`
-- Pure utilities only in `src/utils/`
-
-### Consequences
-
-**Positive**:
-
-- Clear module boundaries
-- Easier to understand related functionality
-- Better testability and maintainability
-- Supports future microservice extraction
-
-**Negative**:
-
-- Large refactoring effort required
-- Temporary increase in import path changes
-
----
+**Consequences**:
+- ✅ Clear feature boundaries and ownership
+- ✅ Related code co-located for easier maintenance
+- ✅ Better encapsulation with barrel exports
+- ⚠️ Initial migration effort required
 
 ## ADR-002: Path Aliases for Import Management
 
-**Date**: 2024-12-XX  
-**Status**: Accepted
+**Date**: Phase 5  
+**Status**: Accepted  
+**Context**: Deep relative imports (`../../../utils/something`) made refactoring difficult and imports brittle.
 
-### Context
+**Decision**: Implement comprehensive path alias system:
+```typescript
+"@/*": ["*"],
+"@config/*": ["config/*"],
+"@core/*": ["core/*"],
+"@features/*": ["features/*"],
+"@types/*": ["types/*"],
+"@utils/*": ["utils/*"],
+"@state/*": ["state/*"],
+"@sell/*": ["sell/*"],
+"@init/*": ["init/*"]
+```
 
-Deep relative imports (`../../../utils/something`) made code hard to read and refactor.
+**Consequences**:
+- ✅ Imports remain stable during refactoring
+- ✅ Cleaner, more readable import statements
+- ✅ IDE auto-completion and navigation
+- ✅ Easier to understand dependencies
 
-### Decision
+## ADR-003: Non-Destructive Code Quarantine
 
-Implement TypeScript path aliases:
+**Date**: Phase 5  
+**Status**: Accepted  
+**Context**: Need to safely remove potentially unused code without risking runtime breakage.
 
-- `@/` → `src/`
-- `@features/*` → `src/features/*`
-- `@core/*` → `src/core/*`
-- `@utils/*` → `src/utils/*`
+**Decision**: Implement attic-based quarantine system:
+1. Move potentially unused files to `/_attic/` maintaining directory structure
+2. Create stub files at original locations with re-exports if needed
+3. Monitor for runtime issues over time
+4. Delete permanently only after verification period
 
-### Consequences
+**Consequences**:
+- ✅ Zero risk of breaking changes during cleanup
+- ✅ Easy restoration if files are needed
+- ✅ Evidence-based removal with full traceability
+- ⚠️ Additional storage overhead during transition
 
-**Positive**:
+## ADR-004: TypeScript Strict Mode with Interface Normalization
 
-- Cleaner, more readable imports
-- Easier refactoring and file moves
-- IDE autocomplete works better
+**Date**: Phase 5  
+**Status**: Accepted  
+**Context**: TypeScript errors were accumulating due to interface mismatches and missing properties.
 
-**Negative**:
+**Decision**: Maintain strict TypeScript configuration and normalize key interfaces:
+- Add missing properties like `PumpToken.discoveredAt`
+- Ensure interface consistency across modules
+- Fix method signatures to match actual usage
+- Target ≤10 TypeScript errors as quality gate
 
-- Requires build tool configuration
-- Learning curve for new developers
+**Consequences**:
+- ✅ Better type safety and runtime reliability
+- ✅ Improved developer experience with accurate IntelliSense
+- ✅ Early error detection
+- ⚠️ Requires ongoing interface maintenance
 
----
+## ADR-005: Barrel Exports for Feature Modules
 
-## ADR-003: ESM-First with Jest Configuration
+**Date**: Phase 5  
+**Status**: Accepted  
+**Context**: Feature modules need clean public APIs and internal implementation hiding.
 
-**Date**: 2024-12-XX
-**Status**: Accepted
+**Decision**: Use barrel files (`index.ts`) in each feature directory:
+```typescript
+// src/features/mev/index.ts
+export * from './mevProtection.js';
+export * from './jitoBundle.js';
+// ... other exports
+```
 
-### Context
+**Consequences**:
+- ✅ Clean public API for each feature
+- ✅ Internal implementation can change without affecting consumers  
+- ✅ Single import point per feature
+- ⚠️ Potential for circular dependencies if not managed carefully
 
-Project uses ES modules but Jest configuration was complex with CJS/ESM mixing causing test failures.
+## ADR-006: Evidence-Based Dependency Management
 
-### Decision
+**Date**: Phase 5  
+**Status**: Accepted  
+**Context**: Package.json contained unused dependencies that add security risk and bundle size.
 
-- Standardize on ESM throughout
-- Configure Jest for native ESM support with ts-jest
-- Use `@jest/globals` for test utilities
+**Decision**: Use static analysis tools (knip, depcheck, ts-prune) to identify truly unused dependencies before removal:
 
-### Consequences
+**Dependencies marked for removal** (awaiting approval):
+- `@jup-ag/api` - Not directly used (may be transitive)
+- `@metaplex-foundation/mpl-token-metadata` - Not used
+- `node-telegram-bot-api` - Telegram functionality not implemented
+- `rpc-websockets` - Not used with current RPC setup  
+- `socket.io-client` - Not used
 
-**Positive**:
+**DevDependencies for removal**:
+- `@types/bn.js`, `@types/bs58` - Type definitions not needed
+- `@types/node-telegram-bot-api` - For unused package
+- `jest-environment-node` - Not configured
+- `tsx` - TypeScript runner not used
 
-- Consistent module system
-- Better tree-shaking
-- Modern JavaScript practices
-- Cleaner test configuration
+**Consequences**:
+- ✅ Smaller bundle size and attack surface
+- ✅ Cleaner dependency graph
+- ✅ Evidence-based decisions prevent accidental removal
+- ⚠️ Requires verification that dependencies are truly unused
 
-**Negative**:
+## ADR-007: Zero Circular Dependency Policy
 
-- Some legacy tooling compatibility issues
-- Requires careful Jest configuration
+**Date**: Phase 4-5  
+**Status**: Accepted  
+**Context**: Circular dependencies cause build issues, runtime problems, and make code harder to reason about.
 
----
+**Decision**: Maintain zero circular dependencies as verified by madge:
+```bash
+npm run graph:cycles  # Must show "No circular dependency found!"
+```
 
-## ADR-004: Strict TypeScript Configuration
+**Consequences**:
+- ✅ Predictable module loading and initialization
+- ✅ Better separation of concerns
+- ✅ Easier testing and mocking
+- ✅ Cleaner architecture
+- ⚠️ Requires careful design of module boundaries
 
-**Date**: 2024-12-XX
-**Status**: Accepted
+## Decision Status
 
-### Context
-
-TypeScript was configured with basic strict mode but missing some safety features.
-
-### Decision
-
-Enable additional strict TypeScript options:
-
-- `noImplicitAny: true`
-- `noUnusedLocals: true`
-- `noUnusedParameters: true`
-- `exactOptionalPropertyTypes: true`
-
-### Consequences
-
-**Positive**:
-
-- Better type safety
-- Catches more errors at compile time
-- Forces explicit typing
-
-**Negative**:
-
-- Requires more explicit type annotations
-- May initially increase development time
-
----
-
-## ADR-005: File Size Limits and Guidelines
-
-**Date**: 2024-12-XX
-**Status**: Accepted
-
-### Context
-
-Multiple files exceeded 400+ lines making them hard to understand and maintain.
-
-### Decision
-
-Establish size guidelines:
-
-- Files: ≤400 lines (exceptions for generated code with header notes)
-- Functions: ≤60 lines
-- Classes: ≤200 lines
-
-### Consequences
-
-**Positive**:
-
-- More focused, readable code
-- Better testability
-- Easier code review
-
-**Negative**:
-
-- Requires disciplined refactoring
-- May increase number of files
-
----
-
-_Future ADRs will be added as architectural decisions are made during the refactoring process._
+- **Accepted**: Decision is active and should be followed
+- **Deprecated**: Decision is no longer recommended
+- **Superseded**: Decision has been replaced by newer ADR

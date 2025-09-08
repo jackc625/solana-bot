@@ -264,14 +264,6 @@ class Logger {
 // Create singleton logger instance
 const logger = new Logger();
 
-// Export both the logger instance and legacy functions for backward compatibility
+// Export the logger instance
 export default logger;
-
-export async function logTrade(entry: Record<string, any>) {
-    return logger.logTrade(entry);
-}
-
-export async function logError(error: any, context?: string) {
-    logger.error(context || 'UNKNOWN', 'Legacy error log', undefined, error);
-}
 
