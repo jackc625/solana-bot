@@ -1,0 +1,49 @@
+kind,file_or_pkg,reason,evidence,action
+file,scripts/quickMetricsTest.ts,Test script never used in production,knip unused files,attic
+file,scripts/simpleMetricsTest.js,Test script never used in production,knip unused files,attic
+file,scripts/testLpLockReal.ts,Test script never used in production,knip unused files,attic
+file,scripts/testLpLockSimple.cjs,Test script never used in production,knip unused files,attic
+file,scripts/testMetrics.ts,Test script never used in production,knip unused files,attic
+file,scripts/testPortfolioRisk.ts,Test script never used in production,knip unused files,attic
+file,scripts/testPositionPersistence.ts,Test script never used in production,knip unused files,attic
+file,scripts/testRpcFailover.ts,Test script never used in production,knip unused files,attic
+file,src/utils/getLpLiquidity.ts,Utility function not imported anywhere,knip unused files,attic
+file,src/utils/getLpTokenAddress.ts,Utility function not imported anywhere,knip unused files,attic
+file,src/utils/index.ts,Barrel file not used,knip unused files,attic
+file,src/utils/testLiquidityAnalysis.ts,Test utility not used,knip unused files,attic
+file,src/utils/testSocialVerification.ts,Test utility not used,knip unused files,attic
+file,test/integration/lpLockRealWorldTest.ts,Duplicate test file,knip unused files,attic
+file,tests/integration/lpLockRealWorldTest.ts,Duplicate test file,knip unused files,attic
+file,src/core/clients/index.ts,Barrel file with no imports,knip unused files,attic
+file,src/core/clients/splTokenCompat.ts,Compatibility layer not used,knip unused files,attic
+file,src/core/portfolio/index.ts,Empty barrel file,knip unused files,attic
+file,src/core/state/index.ts,Empty barrel file,knip unused files,attic
+file,src/features/autosell/index.ts,Empty barrel file,knip unused files,attic
+file,src/features/discovery/index.ts,Barrel file not imported,knip unused files,attic
+file,src/features/discovery/pendingTokens.ts,Module not imported anywhere,knip unused files,attic
+file,src/features/discovery/pumpPortalSocket.ts,Module not imported anywhere,knip unused files,attic
+file,src/features/mev/index.ts,Empty barrel file,knip unused files,attic
+file,src/features/validation/index.ts,Barrel file not imported,knip unused files,attic
+file,src/features/telemetry/index.ts,Empty barrel file,knip unused files,attic
+file,src/features/safety/stageAwareSafety/checks/authorities.ts,Check not used,knip unused files,attic
+file,src/features/safety/stageAwareSafety/checks/route.ts,Check not used,knip unused files,attic
+file,src/features/safety/stageAwareSafety/stages/preBond.ts,Stage not used,knip unused files,attic
+dep,@jup-ag/api,Jupiter API package not directly used,knip + depcheck,delete-later
+dep,@metaplex-foundation/mpl-token-metadata,Metaplex metadata package not used,knip + depcheck,delete-later
+dep,node-telegram-bot-api,Telegram bot not implemented,knip + depcheck,delete-later
+dep,rpc-websockets,WebSocket package not used,knip + depcheck,delete-later
+dep,socket.io-client,Socket.io client not used,knip + depcheck,delete-later
+devdep,@types/bn.js,Type definitions not needed,depcheck,delete-later
+devdep,@types/node-telegram-bot-api,Type definitions for unused package,depcheck,delete-later
+devdep,jest-environment-node,Jest env not configured,depcheck,delete-later
+devdep,tsx,TypeScript runner not used,depcheck,delete-later
+devdep,@typescript-eslint/eslint-plugin,ESLint plugin appears unused,depcheck,keep
+devdep,@typescript-eslint/parser,ESLint parser appears unused,depcheck,keep
+devdep,depcheck,Tool itself being used,depcheck,keep
+devdep,eslint,Linter being used,depcheck,keep
+devdep,eslint-plugin-import,ESLint plugin being used,depcheck,keep
+devdep,eslint-plugin-unused-imports,ESLint plugin being used,depcheck,keep
+devdep,knip,Tool itself being used,depcheck,keep
+devdep,madge,Tool itself being used,depcheck,keep
+devdep,prettier,Formatter being used,depcheck,keep
+devdep,ts-node,TypeScript runner being used,depcheck,keep
