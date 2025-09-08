@@ -11,7 +11,7 @@ import { trackBuy } from '../sell/autoSellManager.js';
 import { loadBotConfig } from '../config/index.js';
 import { loadWallet, getConnection } from '../utils/solana.js';
 import logger from '../utils/logger.js';
-import metricsCollector from '../utils/metricsCollector.js';
+import metricsCollector from "@features/telemetry/metricsCollector.js";
 
 export class StateMachineCoordinator {
   private readonly warmingDelay = 15_000; // 15s warming period

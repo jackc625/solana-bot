@@ -12,7 +12,7 @@ import { PumpToken } from '../../types/PumpToken.js';
 import { evaluateToken } from '../safety/stageAwareSafety/index.js';
 import { poolDetector } from '../../utils/poolDetection.js';
 import logger from '../../utils/logger.js';
-import metricsCollector from '../../utils/metricsCollector.js';
+import metricsCollector from "@features/telemetry/metricsCollector.js";
 import { loadBotConfig } from '../../config/index.js';
 
 export interface WatchlistStats {

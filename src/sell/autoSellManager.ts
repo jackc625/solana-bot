@@ -6,7 +6,7 @@ import { sellToken, getCurrentPriceViaJupiter } from "../core/trading.js";
 import { loadBotConfig } from "../config/index.js";
 import positionPersistence from "../utils/positionPersistence.js";
 import logger from "../utils/logger.js";
-import metricsCollector from "../utils/metricsCollector.js";
+import metricsCollector from "@features/telemetry/metricsCollector.js";
 
 type ScaleOutStep = { roi: number; fraction: number };
 type TrailingTier  = { threshold: number; drop: number };

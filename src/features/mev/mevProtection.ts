@@ -10,7 +10,7 @@ import mevAwarePriorityFeeCalculator, {
 import sandwichDetectionSystem, { SandwichRiskAssessment } from '../utils/sandwichDetection.js';
 import logger from '../utils/logger.js';
 import { loadBotConfig } from '../config/index.js';
-import metricsCollector from '../utils/metricsCollector.js';
+import metricsCollector from "@features/telemetry/metricsCollector.js";
 
 export interface MEVProtectionRequest {
   tokenMint: string;

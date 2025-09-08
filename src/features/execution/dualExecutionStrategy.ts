@@ -10,7 +10,7 @@ import {
   TransactionSignature,
   ComputeBudgetProgram,
 } from '@solana/web3.js';
-import jitoBundleManager from '../utils/jitoBundle.js';
+import jitoBundleManager from "../mev/jitoBundle.js";
 import { sendMEVAwarePumpTrade } from '../utils/mevAwarePumpTrade.js';
 import { sendPumpTrade } from '../utils/pumpTrade.js';
 import { calcPriorityFeeSOL } from '../utils/priorityFee.js';

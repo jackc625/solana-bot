@@ -4,7 +4,7 @@
 import { Connection, PublicKey, Keypair } from "@solana/web3.js";
 import { PumpToken } from "../types/PumpToken.js";
 import { tokenWatchlist } from "./tokenWatchlist.js";
-import { stageAwareMetrics } from "../utils/stageAwareMetrics.js";
+import { stageAwareMetrics } from "@features/telemetry/stageAwareMetrics.js";
 import logger from "../utils/logger.js";
 import { loadBotConfig } from "../config/index.js";
 

@@ -13,7 +13,7 @@ import {
     FailureReason 
 } from "../types/TokenStage.js";
 import { loadBotConfig } from "../config/index.js";
-import metricsCollector from "../utils/metricsCollector.js";
+import metricsCollector from "@features/telemetry/metricsCollector.js";
 import logger from "../utils/logger.js";
 import { hasDirectJupiterRouteHttp } from "../utils/jupiterHttp.js";
 import { getCurrentPriceViaJupiter } from "./trading.js";

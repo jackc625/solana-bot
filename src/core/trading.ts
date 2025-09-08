@@ -16,7 +16,7 @@ import emergencyCircuitBreaker from "./emergencyCircuitBreaker.js";
 import networkHealthMonitor from "../utils/networkHealth.js";
 import liquidityAnalyzer, { LiquidityDepthAnalysis, PriceImpactCalculation } from "../utils/liquidityAnalysis.js";
 import portfolioRiskManager from "./portfolioRiskManager.js";
-import metricsCollector from "../utils/metricsCollector.js";
+import metricsCollector from "@features/telemetry/metricsCollector.js";
 
 /**
  * Enhanced price and liquidity assessment with proper depth analysis.

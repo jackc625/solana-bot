@@ -13,7 +13,7 @@ import { verifyTokenLpLock } from "../utils/lpLockVerification.js";
 import emergencyCircuitBreaker from "./emergencyCircuitBreaker.js";
 import liquidityAnalyzer from "../utils/liquidityAnalysis.js";
 import socialVerificationService from "../utils/socialVerification.js";
-import metricsCollector from "../utils/metricsCollector.js";
+import metricsCollector from "@features/telemetry/metricsCollector.js";
 
 const JSBI: any = JSBIImport;
 

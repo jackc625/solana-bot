@@ -4,7 +4,7 @@
 import { EventEmitter } from 'events';
 import { PumpToken } from '../types/PumpToken.js';
 import logger from '../utils/logger.js';
-import metricsCollector from '../utils/metricsCollector.js';
+import metricsCollector from "@features/telemetry/metricsCollector.js";
 
 // Token processing states
 export enum TokenState {

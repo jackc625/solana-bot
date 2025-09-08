@@ -18,11 +18,11 @@ import {
   getOrCreateAssociatedTokenAccount,
   createAssociatedTokenAccount,
 } from '@solana/spl-token';
-import logger from './logger.js';
-import metricsCollector from './metricsCollector.js';
-import { loadBotConfig } from '../config/index.js';
-import rpcManager from './rpcManager.js';
-import { getConnection } from './solana.js';
+import logger from '@utils/logger.js';
+import metricsCollector from "../telemetry/metricsCollector.js";
+import { loadBotConfig } from '@config/index.js';
+import rpcManager from '@utils/rpcManager.js';
+import { getConnection } from '@utils/solana.js';
 
 const config = loadBotConfig();
 
