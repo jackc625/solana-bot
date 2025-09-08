@@ -34,6 +34,11 @@ import {
     printValidationResults 
 } from "./utils/validateEnvironment.js";
 import logger from "./utils/logger.js";
+import transactionPrep from "./utils/transactionPreparation.js";
+import { stateMachineCoordinator } from "./state/stateMachineCoordinator.js";
+import { tokenStateMachine } from "./state/tokenStateMachine.js";
+import { stageAwarePipeline } from "./core/stageAwarePipeline.js";
+import { stageAwareMetrics } from "./utils/stageAwareMetrics.js";
 
 
 let lastSnipeTime = 0;
@@ -210,13 +215,86 @@ async function main() {
         console.warn("⚠️ Metrics initialization failed, continuing without metrics", (error as Error).message);
     }
 
-    // 🚨 Push into pending queue instead of processing instantly, with normalization
+    // Initialize transaction preparation (ATA pre-creation and ComputeBudget setup)
+    if (wallet) {
+        console.log("🔧 Initializing transaction preparation...");
+        try {
+            const currentConnection = getConnection();
+            await transactionPrep.initialize(currentConnection, wallet);
+            console.log("✅ Transaction preparation initialized - ATAs pre-created");
+        } catch (error) {
+            console.warn("⚠️ Transaction preparation failed, continuing without pre-created ATAs", (error as Error).message);
+        }
+    }
+
+    // Initialize state machine coordinator
+    console.log("🔄 Initializing state machine coordinator...");
+    try {
+        await stateMachineCoordinator.initialize();
+        console.log("✅ State machine coordinator initialized");
+        
+        // Log state machine statistics periodically
+        setInterval(() => {
+            const stats = stateMachineCoordinator.getStatistics();
+            if (stats.totalTokens > 0) {
+                console.log(`📊 FSM Stats: ${stats.totalTokens} tokens, ${stats.capacityUsed} capacity, avg processing: ${(stats.averageProcessingTime / 1000).toFixed(1)}s`);
+            }
+        }, 60_000); // Every minute
+        
+    } catch (error) {
+        console.warn("⚠️ State machine coordinator initialization failed, using legacy processing", (error as Error).message);
+    }
+
+    // Initialize stage-aware pipeline
+    console.log("🎯 Initializing stage-aware token processing pipeline...");
+    try {
+        await stageAwarePipeline.start();
+        console.log("✅ Stage-aware pipeline started successfully");
+        
+        // Log pipeline statistics periodically
+        setInterval(() => {
+            const stats = stageAwarePipeline.getStats();
+            if (stats.watchlistStats.totalTokens > 0) {
+                console.log(`🎯 Stage Pipeline: ${stats.watchlistStats.totalTokens} tokens, ` +
+                           `PRE_BOND:${stats.watchlistStats.byStage.PRE_BOND}, ` +
+                           `BONDED:${stats.watchlistStats.byStage.BONDED_ON_PUMP}, ` +
+                           `READY:${stats.watchlistStats.byStage.RAYDIUM_LISTED}, ` +
+                           `Success Rate: ${(stats.watchlistStats.successRate * 100).toFixed(1)}%`);
+            }
+        }, 30_000); // Every 30 seconds
+        
+    } catch (error) {
+        console.warn("⚠️ Stage-aware pipeline failed to start, using legacy mode", (error as Error).message);
+    }
+
+    // 🚨 Route tokens through stage-aware pipeline and legacy systems
     await monitorPumpPortal((token) => {
         const norm = normalizeMint(token.mint, token.pool);
         if (!norm) return;
-        if (!pendingTokens.has(norm)) {
-            pendingTokens.set(norm, { ...token, mint: norm });
-            console.log("🟢 Queued new token for validation:", norm);
+        
+        const normalizedToken = { ...token, mint: norm };
+        
+        // PRIMARY: Route through stage-aware pipeline
+        const addedToStageAware = stageAwarePipeline.addDiscoveredToken(normalizedToken);
+        
+        if (addedToStageAware) {
+            console.log("🎯 Token routed to stage-aware pipeline:", norm.substring(0, 8) + '...');
+        } else {
+            // FALLBACK: Legacy processing for tokens not handled by stage-aware pipeline
+            console.log("🔄 Token routed to legacy processing:", norm.substring(0, 8) + '...');
+            
+            // Add to legacy pending tokens for backward compatibility
+            if (!pendingTokens.has(norm)) {
+                pendingTokens.set(norm, normalizedToken);
+            }
+            
+            // Route through state machine for legacy structured workflow
+            stateMachineCoordinator.addToken(normalizedToken).catch(error => {
+                logger.warn('BOT', 'Failed to add token to legacy state machine', {
+                    mint: norm.substring(0, 8) + '...',
+                    error: error.message
+                });
+            });
         }
     });
 
@@ -230,6 +308,51 @@ async function handleValidatedToken(token: PumpToken) {
     const wallet = loadWallet();
     if (!wallet) return;
 
+    // PRIMARY: Try to get ready token from stage-aware pipeline first
+    const readyToken = await stageAwarePipeline.getReadyToken();
+    if (readyToken) {
+        // Use the pre-validated token from stage-aware pipeline
+        token = readyToken;
+        console.log(`✅ Using pre-validated token from stage-aware pipeline: ${token.mint.substring(0, 8)}...`);
+        
+        // Skip to sniping - safety checks already passed
+        const buyAmount = config.buyAmounts[String(6)] ?? 0.005; // Use high score since it passed validation
+        console.log(`🚀 Stage-aware token ready; sniping ${token.mint} for ${buyAmount} SOL`);
+        
+        // Record discovery latency for stage-aware tokens
+        if (token.discoveredAt) {
+            const discoveryLatency = Date.now() - token.discoveredAt;
+            metricsCollector.recordDiscoveryLatency(discoveryLatency, 'buy_sent');
+            console.log(`⏱️ Stage-aware discovery latency: ${discoveryLatency}ms`);
+        }
+        
+        // Execute the trade
+        const tradeStart = Date.now();
+        await trySnipeToken(connection, wallet, token.mint, buyAmount, config.dryRun, token.creator);
+        const tradeDuration = Date.now() - tradeStart;
+        
+        metricsCollector.recordTradingOperation('buy', 'success', tradeDuration);
+        
+        // Send notification
+        await sendTelegramMessage(
+            `🎯 *Stage-Aware Sniped* \`${token.mint}\`\n` +
+            `💰 Buy: ${buyAmount} SOL\n` +
+            `🏁 Liquidity: ${token.simulatedLp?.toFixed(4)} SOL\n` +
+            `⚡ Discovery: ${token.discoveredAt ? Date.now() - token.discoveredAt : '?'}ms\n` +
+            `🔗 [Pump](https://pump.fun/${token.mint})`
+        );
+
+        // Track the buy
+        try {
+            trackBuy(token.mint, buyAmount, token.simulatedLp ? buyAmount / token.simulatedLp : 0, token.creator);
+        } catch (err) {
+            console.error(`❌ Failed to track stage-aware buy for ${token.mint}:`, err);
+        }
+        
+        return; // Done - no need for legacy validation
+    }
+
+    // FALLBACK: Continue with existing legacy validation logic for tokens not in stage-aware pipeline
     // Prevent duplicate processing
     if (processedTokens.has(token.mint)) {
         logger.debug('BOT', 'Skipping already processed token', { 
@@ -262,6 +385,12 @@ async function handleValidatedToken(token: PumpToken) {
             });
             metricsCollector.recordTokenValidation('safety_check', 'fail');
             metricsCollector.recordTradingOperation('safety_check', 'failure', safetyCheckDuration, result.reason || 'unknown');
+            
+            // Record discovery latency for rejected tokens
+            if (token.discoveredAt) {
+                const discoveryLatency = Date.now() - token.discoveredAt;
+                metricsCollector.recordDiscoveryLatency(discoveryLatency, 'rejected');
+            }
             return;
         }
         
@@ -290,6 +419,12 @@ async function handleValidatedToken(token: PumpToken) {
                 threshold: config.scoreThreshold 
             });
             metricsCollector.recordTokenValidation('scoring', 'fail');
+            
+            // Record discovery latency for rejected tokens
+            if (token.discoveredAt) {
+                const discoveryLatency = Date.now() - token.discoveredAt;
+                metricsCollector.recordDiscoveryLatency(discoveryLatency, 'rejected');
+            }
             return;
         }
         
@@ -362,6 +497,13 @@ async function handleValidatedToken(token: PumpToken) {
 
         console.log(`🚀 Safety & score passed; sniping ${token.mint} for ${buyAmount} SOL`);
         
+        // Record discovery-to-execution latency
+        if (token.discoveredAt) {
+            const discoveryLatency = Date.now() - token.discoveredAt;
+            metricsCollector.recordDiscoveryLatency(discoveryLatency, 'buy_sent');
+            console.log(`⏱️ Discovery latency: ${discoveryLatency}ms`);
+        }
+        
         // Record trade execution
         const tradeStart = Date.now();
         await trySnipeToken(connection, wallet, token.mint, buyAmount, config.dryRun, token.creator);
@@ -425,6 +567,42 @@ async function trySnipeToken(
 
     await snipeToken({ connection, wallet, mint, amountSOL: amount, dryRun, deployer });
 }
+
+// Add detailed diagnostics logging every 5 minutes
+setInterval(() => {
+    try {
+        const diagnosticsReport = stageAwarePipeline.generateDiagnosticsReport();
+        console.log('\n' + '='.repeat(60));
+        console.log('📊 STAGE-AWARE PIPELINE DIAGNOSTICS');
+        console.log('='.repeat(60));
+        console.log(diagnosticsReport);
+        console.log('='.repeat(60) + '\n');
+        
+        // Also log to file for debugging
+        logger.info('STAGE_DIAGNOSTICS', 'Detailed pipeline report', {
+            timestamp: new Date().toISOString(),
+            reportLength: diagnosticsReport.length
+        });
+        
+    } catch (error) {
+        console.warn('⚠️ Failed to generate stage-aware diagnostics:', error);
+    }
+}, 5 * 60 * 1000); // Every 5 minutes
+
+// Graceful shutdown handler
+process.on('SIGINT', () => {
+    console.log('\n🛑 Received SIGINT, shutting down gracefully...');
+    tokenStateMachine.shutdown();
+    stageAwarePipeline.stop().catch(console.error);
+    process.exit(0);
+});
+
+process.on('SIGTERM', () => {
+    console.log('\n🛑 Received SIGTERM, shutting down gracefully...');
+    tokenStateMachine.shutdown();
+    stageAwarePipeline.stop().catch(console.error);
+    process.exit(0);
+});
 
 async function runWithRestart() {
     let restartCount = 0;

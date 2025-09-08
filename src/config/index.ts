@@ -16,6 +16,30 @@ export interface RpcEndpoint {
     wsUrl?: string;
 }
 
+export interface MEVProtectionConfig {
+    enabled: boolean;
+    protectionLevel: 'LOW' | 'MEDIUM' | 'HIGH' | 'AGGRESSIVE';
+    customTipAmount?: number;
+    maxBundleSize: number;
+    timeoutMs: number;
+    retryAttempts: number;
+    blockEngineUrl?: string;
+    maxFeeMultiplier?: number;
+    maxBundleTip?: number;
+    emergencyDisable?: boolean;
+    riskThresholds?: {
+        abortOnCritical?: boolean;
+        maxTradeDelayMs?: number;
+        forcePrivateMempoolAbove?: number;
+    };
+    sandwichDetection?: {
+        enabled?: boolean;
+        sensitivity?: 'LOW' | 'MEDIUM' | 'HIGH';
+        mempoolAnalysisDepth?: number;
+        patternHistoryMs?: number;
+    };
+}
+
 export interface BotConfig {
     dryRun: boolean;
     minLiquidity: number;
@@ -24,6 +48,18 @@ export interface BotConfig {
     
     // Multi-RPC configuration
     rpcEndpoints?: RpcEndpoint[];
+    
+    // Stage-aware pipeline configuration
+    stageAwarePipeline?: {
+        enabled?: boolean;
+        debugMode?: boolean;
+        maxConcurrentTokens?: number;
+        metricsLoggingIntervalMs?: number;
+        watchlistStatsIntervalMs?: number;
+        preBond?: any;
+        bondedOnPump?: any;
+        raydiumListed?: any;
+    };
     rpcHealthCheckIntervalMs?: number;
     rpcFailoverThreshold?: number;
     buyAmounts: Record<string, number>;
@@ -80,6 +116,40 @@ export interface BotConfig {
     maxDeployerTokens?: number;         // Maximum tokens per deployer
     deployerCooldownMs?: number;        // Cooldown between trades from same deployer
     concentrationThreshold?: number;    // Warning threshold for concentration
+    
+    // MEV Protection settings
+    mevProtection?: MEVProtectionConfig;
+    
+    // Dual Execution Strategy settings
+    dualExecution?: {
+        enabled?: boolean;
+        defaultStrategy?: string;
+        highRiskStrategy?: string;
+        lowRiskStrategy?: string;
+        jitoTimeoutMs?: number;
+        publicTimeoutMs?: number;
+        parallelTimeoutMs?: number;
+        maxRetries?: number;
+        fallbackDelayMs?: number;
+        priorityFeeMultiplier?: number;
+        emergencyPublicFallback?: boolean;
+        strategySelection?: {
+            autoSelectByRisk?: boolean;
+            forceJitoAboveAmount?: number;
+            forceParallelBelowAmount?: number;
+            riskThresholds?: {
+                highRisk?: number;
+                mediumRisk?: number;
+                lowRisk?: number;
+            };
+        };
+        monitoring?: {
+            logExecutionDetails?: boolean;
+            trackSuccessRates?: boolean;
+            alertOnFailures?: boolean;
+            performanceMetrics?: boolean;
+        };
+    };
 }
 
 export const loadBotConfig = (): BotConfig => {

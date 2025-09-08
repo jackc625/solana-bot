@@ -84,5 +84,93 @@
   "maxTokenConcentration": 0.2,
   "maxDeployerTokens": 2,
   "deployerCooldownMs": 180000,
-  "concentrationThreshold": 0.15
+  "concentrationThreshold": 0.15,
+  
+  "mevProtection": {
+    "enabled": true,
+    "protectionLevel": "MEDIUM",
+    "customTipAmount": null,
+    "maxBundleSize": 5,
+    "timeoutMs": 30000,
+    "retryAttempts": 2,
+    "blockEngineUrl": "https://mainnet.block-engine.jito.wtf",
+    "maxFeeMultiplier": 3.0,
+    "maxBundleTip": 0.005,
+    "emergencyDisable": false,
+    "riskThresholds": {
+      "abortOnCritical": true,
+      "maxTradeDelayMs": 30000,
+      "forcePrivateMempoolAbove": 0.1
+    },
+    "sandwichDetection": {
+      "enabled": true,
+      "sensitivity": "MEDIUM",
+      "mempoolAnalysisDepth": 20,
+      "patternHistoryMs": 300000
+    }
+  },
+  
+  "dualExecution": {
+    "enabled": true,
+    "defaultStrategy": "JITO_WITH_FALLBACK",
+    "highRiskStrategy": "JITO_ONLY",
+    "lowRiskStrategy": "PARALLEL_EXECUTION",
+    "jitoTimeoutMs": 3000,
+    "publicTimeoutMs": 8000,
+    "parallelTimeoutMs": 5000,
+    "maxRetries": 2,
+    "fallbackDelayMs": 1000,
+    "priorityFeeMultiplier": 1.5,
+    "emergencyPublicFallback": true,
+    "strategySelection": {
+      "autoSelectByRisk": true,
+      "forceJitoAboveAmount": 0.1,
+      "forceParallelBelowAmount": 0.01,
+      "riskThresholds": {
+        "highRisk": 0.8,
+        "mediumRisk": 0.5,
+        "lowRisk": 0.2
+      }
+    },
+    "monitoring": {
+      "logExecutionDetails": true,
+      "trackSuccessRates": true,
+      "alertOnFailures": true,
+      "performanceMetrics": true
+    }
+  },
+
+  "stageAwarePipeline": {
+    "enabled": true,
+    "debugMode": false,
+    "maxConcurrentTokens": 50,
+    "metricsLoggingIntervalMs": 60000,
+    "watchlistStatsIntervalMs": 30000,
+    "preBond": {
+      "enabled": true,
+      "minNameLength": 3,
+      "maxNameLength": 50,
+      "requireImage": false,
+      "checkCreatorHistory": true,
+      "minCreatorAge": 1800000,
+      "skipDeadHours": true
+    },
+    "bondedOnPump": {
+      "enabled": true,
+      "maxWaitTimeMs": 300000,
+      "minVelocityChecks": 3,
+      "trackUniqueWallets": true,
+      "creatorBehaviorCheck": false
+    },
+    "raydiumListed": {
+      "enabled": true,
+      "minLiquidity": 10,
+      "maxLiquidity": null,
+      "honeypotCheck": true,
+      "lpLockCheck": true,
+      "socialVerificationCheck": true,
+      "holderDistributionCheck": true,
+      "mintAuthorityCheck": true
+    }
+  }
 }
