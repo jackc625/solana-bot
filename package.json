@@ -6,7 +6,7 @@
   "main": "index.js",
   "scripts": {
     "start": "node --loader ts-node/esm src/bot.ts",
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.build.json",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "ESLINT_USE_FLAT_CONFIG=false eslint . --ext .ts,.tsx",
