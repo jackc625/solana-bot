@@ -7,3 +7,4 @@ export {
   clearPendingTokens,
   hasPendingToken 
 } from './pendingTokens.js';
+export { tokenWatchlist } from './tokenWatchlist.js';
