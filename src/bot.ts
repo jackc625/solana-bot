@@ -21,7 +21,7 @@ import { metricsServer } from "./utils/metricsServer.js";
 import { Connection, PublicKey, Keypair } from "@solana/web3.js";
 import { sleep } from "./utils/time.js";
 import { jupiterQueue } from "./utils/jupiter.js";
-import { startRetryValidator } from "./core/retryValidator.js";
+import startRetryValidator from "./core/retryValidator.js";
 import { pendingTokens } from "./state/pendingTokens.js";
 import { sendTelegramMessage, startTelegramBot } from "./utils/telegram.js";
 import { normalizeMint } from "./utils/normalizeMint.js";
